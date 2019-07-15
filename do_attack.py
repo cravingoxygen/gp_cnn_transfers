@@ -86,10 +86,8 @@ def classify(key, Xz, Yz, z, X, K_inv, K_inv_Y, kern, kernels_dir, output_dir):
     Kxzx = initialize_kernel("Kx{}x".format(z), Xz, X, False, kern, kernels_dir)
     Kz_diag = initialize_kernel("K{}_diag".format(z), Xz, None, True, kern, kernels_dir)
 
-
     print('Shape of ',"Kx{}x".format(z),' is {}'.format(Kxzx.shape))
     print('Shape of ',"K{}_diag".format(z),' is {}'.format(Kz_diag.shape))
-    import pdb; pdb.set_trace()
     results.summarize_error(Kz_diag, Kxzx, Yz, K_inv, K_inv_Y, key, output_dir)
 
 
@@ -107,7 +105,7 @@ if __name__ == '__main__':
     
     adv_dir = '/scratch/etv21/conv_gp_data/MNIST_data/reverse/'
     #Filename if using attack that has already been generated.
-    adv_data_file = 'gp_adversarial_examples_noisy_eps=0.3_norm_2.npy' #'two_vs_seven_adversarial.npy' # 
+    adv_data_file = 'gp_adversarial_examples_eps=0.3_norm_2.npy' #'two_vs_seven_adversarial.npy' # 
     #Filename if attack is being generated and will be saved (as this filename)
     adv_file_output ='gp_adversarial_examples_eps={}_norm_{}'
     generate_attack = True
@@ -150,16 +148,13 @@ if __name__ == '__main__':
     if generate_attack:
         print('Generating attack')
         #Technically, we should be using Y_t_pred to avoid leaking
-        Xa = attacks.fgsm(K_inv_Y, kern, X, Xt, Yt, seed=seed, epsilon=0.3, output_images=True, max_output=50, norm_type=np.Inf, output_path=adv_dir, adv_file_output=adv_file_output)
+        Xa = attacks.fgsm(K_inv_Y, kern, X, Xt, Yt, seed=seed, epsilon=0.3, output_images=True, max_output=50, norm_type=2, output_path=adv_dir, adv_file_output=adv_file_output)
     else:
         print('Loading attack')
-        Xa = np.load(sys.path.join(adv_dir, adv_data_file))
+        Xa = np.load(path.join(adv_dir, adv_data_file))
+        #Xa = Xa.reshape(-1, 28*28)
 
-    #Calculate adversarial kernels
-    Kxax = initialize_kernel("Kxax", Xa, X, False, kern, kernels_dir)
-    Ka_diag = initialize_kernel("Ka_diag", Xa, None, True, kern, kernels_dir)
-    
-    #Calculate adversarial error
+    #Calculate adversarial kernels and error
     classify('adv', Xa, Yt, 'a', X, K_inv, K_inv_Y, kern, kernels_dir, output_dir)
 
 
