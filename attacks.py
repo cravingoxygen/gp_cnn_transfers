@@ -75,7 +75,7 @@ def fgsm(K_inv_Y, kernel, X, Xt, Yt, seed=20,
         X_adv_op = X_ph + scaled_perturbation
         X_adv_op = tf.clip_by_value(X_adv_op, clip_min, clip_max)
     
-    sess.graph.finalize()
+    #sess.graph.finalize()
     #writer = tf.summary.FileWriter(kernel_path + '/tboard', sess.graph)
 
     batch_num = 0
@@ -87,9 +87,9 @@ def fgsm(K_inv_Y, kernel, X, Xt, Yt, seed=20,
         adv_example_batch = sess.run((X_adv_op), feed_dict=feed_dict)
         
         if adv_examples is None:
-            adv_examples = np.array(adv_example_batch.reshape(batch_size, 28, 28))
+            adv_examples = np.array(adv_example_batch.reshape(batch_size, 28*28))
         else:
-            adv_examples = np.append(adv_examples, adv_example_batch.reshape(batch_size, 28, 28), 0)
+            adv_examples = np.append(adv_examples, adv_example_batch.reshape(batch_size, 28*28), 0)
 
         if output_images and (max_output == None or max_output > batch_num * batch_size):
             for c in range(0, batch_size):
