@@ -57,10 +57,9 @@ def summarize_error(K_zz, K_z_x, Y_z, K_inv, K_inv_Y, key, path, make_plots=True
     else:
         Y_pred_n = np.argmax(Y_pred.squeeze(), 1)
     
-    import pdb; pdb.set_trace()
     t = sklearn.metrics.accuracy_score(np.argmax(Y_z, 1), Y_pred_n)
     print(key, 'error: ',(1-t)*100)
-
+    
 
     if make_plots:
         variance = K_zz - np.diagonal((K_z_x @ K_inv @ K_z_x.T))
@@ -78,7 +77,7 @@ def summarize_error(K_zz, K_z_x, Y_z, K_inv, K_inv_Y, key, path, make_plots=True
         plt.scatter(range(0,Y_pred.shape[0]), Y_pred[:,0], alpha=0.3, c=variance, cmap='YlOrRd') 
         plt.colorbar()
         axes = plt.gca()
-        axes.set_ylim([-1.5,1.5])
+        #axes.set_ylim([-1.5,1.5])
         plt.savefig("{}/prediction_{}.png".format(path, descrip), format='png')
         plt.close()
         
