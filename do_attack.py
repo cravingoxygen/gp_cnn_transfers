@@ -100,15 +100,19 @@ if __name__ == '__main__':
     n_gpus = 1
 
     param_constructor = SimpleMNISTParams
+    epsilon=0.3
+    norm_type=np.Inf
+
     data_path = '/scratch/etv21/conv_gp_data/MNIST_data/eps=0.3_arch_0'
     output_dir = '/scratch/etv21/conv_gp_data/exp4/exp4_E2'
     
+    attack_dir = path.join('/scratch/etv21/conv_gp_data/exp4/exp4_F3','eps={}_norm_{}'.format(epsilon, norm_type))
     adv_dir = '/scratch/etv21/conv_gp_data/MNIST_data/reverse/'
-    #Filename if using attack that has already been generated.
-    adv_data_file = 'gp_adversarial_examples_eps=0.3_norm_2.npy' #'two_vs_seven_adversarial.npy' # 
     #Filename if attack is being generated and will be saved (as this filename)
-    adv_file_output ='gp_adversarial_examples_eps={}_norm_{}'
+    adv_file_output ='gp_adversarial_examples_eps={}_norm_{}'.format(epsilon, norm_type)
     generate_attack = True
+    #Filename if using attack that has already been generated.
+    adv_data_file = 'gp_adversarial_examples_eps=0.5_norm_inf.npy' #'two_vs_seven_adversarial.npy' # 
     
     np.random.seed(seed)
     tf.set_random_seed(seed)
@@ -143,19 +147,26 @@ if __name__ == '__main__':
     classify('test', Xt, Yt, 't', X, K_inv, K_inv_Y, kern, kernels_dir, output_dir)
     classify('validation', Xv, Yv, 'v', X, K_inv, K_inv_Y, kern, kernels_dir, output_dir)
 
+    adv_kernels_dir = os.path.join(attack_dir, "kernels")
+    if not os.path.exists(adv_kernels_dir):
+        os.makedirs(adv_kernels_dir)
+        print("Directory " , adv_kernels_dir ,  " Created ")
+
     #So at this point, we no longer need any of the kernels, just the inverse of the training. 
     #Generate attack and save adversarial examples
     if generate_attack:
         print('Generating attack')
         #Technically, we should be using Y_t_pred to avoid leaking
-        Xa = attacks.fgsm(K_inv_Y, kern, X, Xt, Yt, seed=seed, epsilon=0.3, output_images=True, max_output=50, norm_type=2, output_path=adv_dir, adv_file_output=adv_file_output)
+        Yt_adv = np.copy(Yt)
+        Yt_adv[Yt_adv == 0.] = -1
+        Xa = attacks.fgsm(K_inv_Y, kern, X, Xt, Yt_adv, seed=seed, epsilon=epsilon, output_images=True, max_output=50, norm_type=norm_type, output_path=adv_dir, adv_file_output=adv_file_output)
     else:
         print('Loading attack')
         Xa = np.load(path.join(adv_dir, adv_data_file))
         #Xa = Xa.reshape(-1, 28*28)
 
     #Calculate adversarial kernels and error
-    classify('adv', Xa, Yt, 'a', X, K_inv, K_inv_Y, kern, kernels_dir, output_dir)
+    classify('adv', Xa, Yt, 'a', X, K_inv, K_inv_Y, kern, adv_kernels_dir, attack_dir)
 
 
 
