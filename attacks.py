@@ -48,7 +48,7 @@ def fgsm(K_inv_Y, kernel, X, Xt, Yt, seed=20,
         Kxtx_op = kernel.K(X_ph, X2_ph)
         
         predict_op = tf.matmul(Kxtx_op, K_inv_Y_ph)
-        loss = tf.losses.mean_squared_error(predict_op, Yt_ph)
+        loss = -tf.losses.mean_squared_error(predict_op, -Yt_ph)
         grad = tf.gradients(loss, X_ph, stop_gradients=[K_inv_Y_ph, Yt_ph, X2_ph])[0]
         #Check for Nan/Infinite gradients
         with tf.control_dependencies([tf.debugging.assert_all_finite(grad,'grad is not well-defined')]):
