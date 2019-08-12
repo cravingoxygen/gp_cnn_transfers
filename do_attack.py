@@ -123,17 +123,18 @@ if __name__ == '__main__':
 
     param_constructor = EmpiricalPrior
     epsilon=0.3
-    norm_type=2
+    norm_type=np.Inf
 
 
 
     data_path = '/scratch/etv21/conv_gp_data/MNIST_data/expA'
     output_dir = '/scratch/etv21/conv_gp_data/expA1'
-    
-    attack_dir = path.join('/scratch/etv21/conv_gp_data/expA1','eps={}_norm_{}_nll'.format(epsilon, norm_type))
-    adv_dir = '/scratch/etv21/conv_gp_data/MNIST_data/expA/from_gp'
+    #Directory where the adv kernels will be put. Usually a subdirectory of the output_dir
+    attack_dir = path.join('/scratch/etv21/conv_gp_data/expA1','GP_eps={}_norm_{}_nll_targeted'.format(epsilon, norm_type))
+    #Directory where the adv dataset is/will be
+    adv_dir = '/scratch/etv21/conv_gp_data/MNIST_data/expA/'
     #Filename if attack is being generated and will be saved (as this filename)
-    adv_data_file ='gp_adversarial_examples_eps={}_norm_{}_nll'.format(epsilon, norm_type)
+    adv_data_file ='two_vs_seven_GP_FGSM_eps={}_norm_{}_nll_targeted'.format(epsilon, norm_type)
     generate_attack = True
     #Filename if using attack that has already been generated
     #adv_data_file = 'gp_adversarial_examples_eps=0.3_norm_inf_sm.npy' #'two_vs_seven_adversarial.npy' # 
@@ -148,7 +149,7 @@ if __name__ == '__main__':
 
     #Load all the data (train, test, val)
     X, Y, Xv, Yv, Xt, Yt = dataset.mnist_sevens_vs_twos(data_path, noisy=True)
-    import pdb; pdb.set_trace()
+
     #Parameters for the GP
     params = param_constructor(seed)
     params = verify_params(params)
@@ -184,7 +185,7 @@ if __name__ == '__main__':
         #Yt_adv = np.copy(Yt)
         #Yt_adv[Yt_adv == 0.] = -1
         remove_kernels('a', adv_kernels_dir)
-        Xa = attacks.fgsm(K_inv_Y, kern, X, Xt, Yt, seed=seed, epsilon=epsilon, output_images=True, max_output=50, norm_type=norm_type, output_path=adv_dir, adv_file_output=adv_data_file)
+        Xa = attacks.fgsm(K_inv_Y, kern, X, Xt, Yt, seed=seed, epsilon=epsilon, output_images=True, max_output=128, norm_type=norm_type, output_path=adv_dir, adv_file_output=adv_data_file)
     else:
         print('Loading attack')
         Xa = np.load(path.join(adv_dir, adv_data_file))
