@@ -11,6 +11,10 @@ import attacks
 import calculate_kernels as ck
 import inference as results
 
+
+from absl import app as absl_app
+from absl import flags
+
 #From Adria's paper
 def SimpleMNISTParams(seed):
     return dict(
@@ -43,7 +47,7 @@ def verify_params(gp_params):
         gp_params['padding'] = 'SAME'
         gp_params['strides'] = 1
     
-    print("Params:", params)
+    print("Params:", gp_params)
     return gp_params
 
 def make_symm(A, lower=False):
@@ -112,49 +116,42 @@ def classify(key, Xz, Yz, z, X, K_inv, K_inv_Y, kern, kernels_dir, output_dir):
     print('Shape of ',"K{}_diag".format(z),' is {}'.format(Kz_diag.shape))
     results.summarize_error(Kz_diag, Kxzx, Yz, K_inv, K_inv_Y, key, output_dir)
 
+def main(_):
+    FLAGS = flags.FLAGS
 
-if __name__ == '__main__':
-    seed = 0
-    if len(sys.argv) > 1:
-        seed = int(sys.argv[1])
+    if FLAGS.param_constructor == 'EmpiricalPrior':
+        param_constructor = EmpiricalPrior
+    elif FLAGS.param_constructor == 'SimpleMNISTParams':
+        param_constructor = SimpleMNISTParams
+    elif FLAGS.param_constructor == 'PaperParams':
+        param_constructor = PaperParams
     else:
-        seed = 20
-    n_gpus = 1
-
-    param_constructor = EmpiricalPrior
-    epsilon=0.3
-    norm_type=np.Inf
-
-
-
-    data_path = '/scratch/etv21/conv_gp_data/MNIST_data/expA'
-    output_dir = '/scratch/etv21/conv_gp_data/expA1'
-    #Directory where the adv kernels will be put. Usually a subdirectory of the output_dir
-    attack_dir = path.join('/scratch/etv21/conv_gp_data/expA1','GP_eps={}_norm_{}_nll_targeted'.format(epsilon, norm_type))
+        print('Unsupported parameter struct specified')
+        return
+    attack_name = FLAGS.adv_attack_name.format(FLAGS.epsilon, FLAGS.norm_type)
+    #Directory where the adv kernels and adv-specific graphs will be go
+    adv_output_dir = os.path.join(FLAGS.adv_output, attack_name)
     #Directory where the adv dataset is/will be
-    adv_dir = '/scratch/etv21/conv_gp_data/MNIST_data/expA/'
-    #Filename if attack is being generated and will be saved (as this filename)
-    adv_data_file ='two_vs_seven_GP_FGSM_eps={}_norm_{}_nll_targeted'.format(epsilon, norm_type)
-    generate_attack = True
-    #Filename if using attack that has already been generated
-    #adv_data_file = 'gp_adversarial_examples_eps=0.3_norm_inf_sm.npy' #'two_vs_seven_adversarial.npy' # 
+    adv_data_dir = os.path.join(FLAGS.adv_data, attack_name)
+    #Filename if attack is being generated and will be saved (as this filename), or of the file to be loaded if the attack already exists
+    adv_data_file = FLAGS.adv_data_file.format(attack_name)
     
-    np.random.seed(seed)
-    tf.set_random_seed(seed)
+    np.random.seed(FLAGS.seed)
+    tf.set_random_seed(FLAGS.seed)
 
-    kernels_dir = os.path.join(output_dir, "kernels")
+    kernels_dir = os.path.join(FLAGS.output_dir, "kernels")
     if not os.path.exists(kernels_dir):
         os.makedirs(kernels_dir)
         print("Directory " , kernels_dir ,  " Created ")
 
     #Load all the data (train, test, val)
-    X, Y, Xv, Yv, Xt, Yt = dataset.mnist_sevens_vs_twos(data_path, noisy=True)
+    X, Y, Xv, Yv, Xt, Yt = dataset.mnist_sevens_vs_twos(FLAGS.data_path, noisy=True)
 
     #Parameters for the GP
-    params = param_constructor(seed)
+    params = param_constructor(FLAGS.seed)
     params = verify_params(params)
 
-    pu.dump(params, path.join(output_dir, 'params.pkl.gz'))
+    pu.dump(params, path.join(FLAGS.output_dir, 'params.pkl.gz'))
     #Create the GP
     with tf.device("GPU:0"):
         kern = ck.create_kern(params)
@@ -170,31 +167,66 @@ if __name__ == '__main__':
     #Y[Y == 0.] = -1
     K_inv_Y = K_inv @ Y
 
-    classify('test', Xt, Yt, 't', X, K_inv, K_inv_Y, kern, kernels_dir, output_dir)
-    classify('validation', Xv, Yv, 'v', X, K_inv, K_inv_Y, kern, kernels_dir, output_dir)
+    if not FLAGS.adv_only:
+        classify('test', Xt, Yt, 't', X, K_inv, K_inv_Y, kern, kernels_dir, FLAGS.output_dir)
+        classify('validation', Xv, Yv, 'v', X, K_inv, K_inv_Y, kern, kernels_dir, FLAGS.output_dir)
     
-    adv_kernels_dir = os.path.join(attack_dir, "kernels")
+    adv_kernels_dir = os.path.join(adv_output_dir, "kernels")
     if not os.path.exists(adv_kernels_dir):
         os.makedirs(adv_kernels_dir)
         print("Directory " , adv_kernels_dir ,  " Created ")
-
+    
     #So at this point, we no longer need any of the kernels, just the inverse of the training. 
     #Generate attack and save adversarial examples
-    if generate_attack:
+    if FLAGS.generate_attack:
         print('Generating attack')
         #Yt_adv = np.copy(Yt)
         #Yt_adv[Yt_adv == 0.] = -1
         remove_kernels('a', adv_kernels_dir)
-        Xa = attacks.fgsm(K_inv_Y, kern, X, Xt, Yt, seed=seed, epsilon=epsilon, output_images=True, max_output=128, norm_type=norm_type, output_path=adv_dir, adv_file_output=adv_data_file)
+
+        if FLAGS.attack == 'fgsm':
+            Xa = attacks.fgsm(K_inv_Y, kern, X, Xt, Yt, seed=FLAGS.seed, epsilon=FLAGS.epsilon, norm_type=FLAGS.norm_type, output_images=True, max_output=128, output_path=adv_data_dir, adv_file_output=adv_data_file)
+        else:
+            Xa = attacks.fgsm_cleverhans(K_inv_Y, kern, X, Xt, Yt, epsilon=FLAGS.epsilon, norm_type=FLAGS.norm_type, output_images=True, max_output=128,  output_path=adv_data_dir, adv_file_output=adv_data_file)
     else:
         print('Loading attack')
-        Xa = np.load(path.join(adv_dir, adv_data_file))
+        Xa = np.load(path.join(adv_data_dir, adv_data_file))
         #Xa = Xa.reshape(-1, 28*28)
 
     #Calculate adversarial kernels and error
-    classify('adv', Xa, Yt, 'a', X, K_inv, K_inv_Y, kern, adv_kernels_dir, attack_dir)
-    
+    classify('adv', Xa, Yt, 'a', X, K_inv, K_inv_Y, kern, adv_kernels_dir, adv_output_dir)
 
+if __name__ == '__main__':
+    f = flags
+    f.DEFINE_integer('seed', 20, 'The seed to use')
+    f.DEFINE_enum('param_constructor', 'EmpiricalPrior', ['EmpiricalPrior', 'SimpleMNISTParams', 'PaperParams'], 'The GP parameter struct to use')
+    f.DEFINE_float('epsilon', 0.3, 'The FGSM perturbation size')
+    f.DEFINE_float('norm_type', np.Inf, 'The norm to be used by FGSM')
+
+    f.DEFINE_string('data_path', '/scratch/etv21/conv_gp_data/MNIST_data/expA',
+                    "Path to the compressed dataset")
+    f.DEFINE_string('output_dir', '/scratch/etv21/conv_gp_data/expA1',
+                    "Location where all generated files will be placed (graphs, kernels, etc)")
+
+    f.DEFINE_enum('attack', 'fgsm', ['fgsm', 'cleverhans_fgsm'], 'The attack strategy to use')
+
+    f.DEFINE_string('adv_attack_name', 'GP_FGSM_eps={}_norm_{}_nll_targeted',
+                    "Name of attack. All outputs related to this attack will be put in the adv_output/adv_data directories, within a new subdirectory with this (adv_attack_name) name")
+
+    f.DEFINE_string('adv_output', '/scratch/etv21/conv_gp_data/expA1/',
+                    "Directory where the adv kernels will be put. Usually a subdirectory of the output_dir")
+
+    f.DEFINE_string('adv_data', '/scratch/etv21/conv_gp_data/MNIST_data/expA/',
+                    "Directory where the adv dataset is/will be")
+
+    f.DEFINE_string('adv_data_file', 'two_vs_seven_{}.npy',
+                    "Filename of attack data. If the is being generated, the new data will be saved as this filename. Otherwise, the name of file to be loaded if the attack already exists. Final name will be <value>.format(attack_name)")
+
+    f.DEFINE_bool('generate_attack', True,
+                    "Whether the attack is generated, or whether an existing attack should be loaded")
+    f.DEFINE_bool('adv_only', True, 
+                    "When this flag is true, the test and validation error won't be evaluated. Useful when generating a bunch of different attacks for the same GP")
+    absl_app.run(main)
 
 
 def PaperParams():
@@ -208,49 +240,6 @@ def PaperParams():
             padding="SAME", 
             nlin="ExReLU", 
             skip_freq=1,
-    )
-
-
-#Exp 5 C
-def LayerMatchedMNISTParams1(seed):
-    return dict(
-            seed=seed,
-            var_weight=[0.01598815806210041*32.0, 0.0008328557014465332*64.0, 0.00015443310257978737* 64 * 28*28], #Matches CNN layers' empirical variance * number of channels in conv layer (or inputs in FC layer)
-            var_bias=[0.006102397572249174*32.0, 0.0003918512666132301*64.0,  0.00000491933406010503* 64 * 28*28],
-            n_layers=2,
-            filter_sizes=5,
-            strides=1,
-            padding="SAME", 
-            nlin="ExReLU",  
-            skip_freq=-1,
-    )
-
-#Exp 5 D
-def LayerMatchedMNISTParams2(seed):
-    return dict(
-            seed=seed,
-            var_weight=[0.01598815806210041*32.0, 0.0008328557014465332*64.0, 0.00015443310257978737* 64], #Matches CNN layers' empirical variance * number of channels in conv layer (64 in FC layer)
-            var_bias=[0.006102397572249174*32.0, 0.0003918512666132301*64.0,  0.00000491933406010503* 64],
-            n_layers=2,
-            filter_sizes=5,
-            strides=1,
-            padding="SAME", 
-            nlin="ExReLU",  
-            skip_freq=-1,
-    )
-
-#Exp 5 E
-def LayerMatchedMNISTParams3(seed):
-    return dict(
-        seed=seed,
-        var_weight=[0.01598815806210041*32.0, 0.0008328557014465332*64.0, 0.00015443310257978737], #Matches CNN layers' empirical variance * number of channels in conv layer (1 in FC layer)
-        var_bias=[0.006102397572249174*32.0, 0.0003918512666132301*64.0,  0.00000491933406010503],
-        n_layers=2,
-        filter_sizes=5,
-        strides=1,
-        padding="SAME", 
-        nlin="ExReLU",  
-        skip_freq=-1,
     )
 
 def RandomSearchParams(seed):
