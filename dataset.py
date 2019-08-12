@@ -38,7 +38,7 @@ def mnist_sevens_vs_twos(data_path, noisy=True, float_type=np.float64):
     d = input_data.read_data_sets(data_path, one_hot=True)
 
     train_images, train_labels = extract_images_and_labels(2, 7, d.train.images, d.train.labels)
-    test_images, test_labels = mnist_sevens_vs_twos_adv(data_path, data_file='two_vs_seven_test.npy')   #extract_images_and_labels(1, 7, d.test.images, d.test.labels)
+    test_images, test_labels = extract_images_and_labels(2, 7, d.test.images, d.test.labels) #mnist_sevens_vs_twos_adv(data_path, data_file='two_vs_seven_test.npy')
     validation_images, validation_labels = extract_images_and_labels(2, 7, d.validation.images, d.validation.labels)
 
     if noisy:
@@ -56,8 +56,3 @@ def mnist_sevens_vs_twos(data_path, noisy=True, float_type=np.float64):
         test_images, test_labels])
     tf.logging.set_verbosity(old_v)
     return r
-
-
-if __name__ == '__main__':
-    print("So far so good?")
-    print(tf.__version__)
