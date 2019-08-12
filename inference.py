@@ -65,6 +65,9 @@ def summarize_error(K_zz, K_z_x, Y_z, K_inv, K_inv_Y, key, path, make_plots=True
     
     t = sklearn.metrics.accuracy_score(np.argmax(Y_z, 1), Y_pred_n)
     print(key, 'error: ',(1-t)*100,'%')
+    f = open(os.path.join(path, "error.txt"),"w+")
+    f.write("{} error: {} %".format(key,(1-t)*100,'%'))
+    f.close()
     
 
     if make_plots:
@@ -120,6 +123,8 @@ def load_array(path):
     if os.path.islink(path):
         path = os.readlink(path)
     return np.load(path).squeeze()
+
+
 '''
 def conjugate_inference():
     print("Centering labels")
