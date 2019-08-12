@@ -11,12 +11,25 @@ import attacks
 import calculate_kernels as ck
 import inference as results
 
-
+#From Adria's paper
 def SimpleMNISTParams(seed):
     return dict(
             seed=seed,
             var_weight=[0.642928 for k in range (0,3)], #np.random.rand() * 8 + 0.5, #Don't really know what to choose for weights and biases. Same as init for the conv? 0.0004682
             var_bias=[3.761496 for k in range(0,3)], #np.random.rand() * 8 + 0.2, 0.002308
+            n_layers=2,
+            filter_sizes=5,
+            strides=1,
+            padding="SAME", 
+            nlin="ExReLU",  
+            skip_freq=-1,
+    )
+
+def EmpiricalPrior(seed):
+    return dict(
+            seed=seed,
+            var_weight=[0.0428030751645565*25, 0.0015892550582066178*800, 0.0001530303416075185*50176], 
+            var_bias=[0.032435204833745956*25, 0.0012280623195692897*800, (2.100331403198652e-05)*50176],
             n_layers=2,
             filter_sizes=5,
             strides=1,
@@ -48,6 +61,15 @@ def load_array(arr_path):
         arr_path = os.readlink(arr_path)
     return np.load(arr_path).squeeze()
 
+def remove_kernels(z, kernels_dir):
+    diag_kernel_file = path.join(kernels_dir, "K{}_diag.npy".format(z))
+    if os.path.isfile(diag_kernel_file):
+        os.remove(diag_kernel_file) 
+    cov_kernel_file = path.join(kernels_dir, "Kx{}x.npy".format(z))
+    if os.path.isfile(cov_kernel_file):
+        os.remove(cov_kernel_file) 
+
+    
 def initialize_kernel(name, X1, X2, diag, kern, kernels_dir):
     kernel_file = path.join(kernels_dir, name + '.npy')
     #Try to load the kernel.
@@ -99,20 +121,22 @@ if __name__ == '__main__':
         seed = 20
     n_gpus = 1
 
-    param_constructor = SimpleMNISTParams
+    param_constructor = EmpiricalPrior
     epsilon=0.3
-    norm_type=np.Inf
+    norm_type=2
 
-    data_path = '/scratch/etv21/conv_gp_data/MNIST_data/eps=0.3_arch_0'
-    output_dir = '/scratch/etv21/conv_gp_data/exp4/exp4_E2'
+
+
+    data_path = '/scratch/etv21/conv_gp_data/MNIST_data/expA'
+    output_dir = '/scratch/etv21/conv_gp_data/expA1'
     
-    attack_dir = path.join('/scratch/etv21/conv_gp_data/exp4/exp4_F3','eps={}_norm_{}'.format(epsilon, norm_type))
-    adv_dir = '/scratch/etv21/conv_gp_data/MNIST_data/reverse/'
+    attack_dir = path.join('/scratch/etv21/conv_gp_data/expA1','eps={}_norm_{}_nll'.format(epsilon, norm_type))
+    adv_dir = '/scratch/etv21/conv_gp_data/MNIST_data/expA/from_gp'
     #Filename if attack is being generated and will be saved (as this filename)
-    adv_file_output ='gp_adversarial_examples_eps={}_norm_{}'.format(epsilon, norm_type)
+    adv_data_file ='gp_adversarial_examples_eps={}_norm_{}_nll'.format(epsilon, norm_type)
     generate_attack = True
-    #Filename if using attack that has already been generated.
-    adv_data_file = 'gp_adversarial_examples_eps=0.5_norm_inf.npy' #'two_vs_seven_adversarial.npy' # 
+    #Filename if using attack that has already been generated
+    #adv_data_file = 'gp_adversarial_examples_eps=0.3_norm_inf_sm.npy' #'two_vs_seven_adversarial.npy' # 
     
     np.random.seed(seed)
     tf.set_random_seed(seed)
@@ -124,7 +148,7 @@ if __name__ == '__main__':
 
     #Load all the data (train, test, val)
     X, Y, Xv, Yv, Xt, Yt = dataset.mnist_sevens_vs_twos(data_path, noisy=True)
-
+    import pdb; pdb.set_trace()
     #Parameters for the GP
     params = param_constructor(seed)
     params = verify_params(params)
@@ -141,12 +165,13 @@ if __name__ == '__main__':
     Kxx = initialize_kernel("Kxx", X, None, False, kern, kernels_dir)
     K_inv = initialize_Kxx_inverse(kernels_dir)
     #Center labels and make symmetric:
-    Y[Y == 0.] = -1
+    #Don't center labels. Use one-hot vectors as probabilities
+    #Y[Y == 0.] = -1
     K_inv_Y = K_inv @ Y
 
     classify('test', Xt, Yt, 't', X, K_inv, K_inv_Y, kern, kernels_dir, output_dir)
     classify('validation', Xv, Yv, 'v', X, K_inv, K_inv_Y, kern, kernels_dir, output_dir)
-
+    
     adv_kernels_dir = os.path.join(attack_dir, "kernels")
     if not os.path.exists(adv_kernels_dir):
         os.makedirs(adv_kernels_dir)
@@ -156,10 +181,10 @@ if __name__ == '__main__':
     #Generate attack and save adversarial examples
     if generate_attack:
         print('Generating attack')
-        #Technically, we should be using Y_t_pred to avoid leaking
-        Yt_adv = np.copy(Yt)
-        Yt_adv[Yt_adv == 0.] = -1
-        Xa = attacks.fgsm(K_inv_Y, kern, X, Xt, Yt_adv, seed=seed, epsilon=epsilon, output_images=True, max_output=50, norm_type=norm_type, output_path=adv_dir, adv_file_output=adv_file_output)
+        #Yt_adv = np.copy(Yt)
+        #Yt_adv[Yt_adv == 0.] = -1
+        remove_kernels('a', adv_kernels_dir)
+        Xa = attacks.fgsm(K_inv_Y, kern, X, Xt, Yt, seed=seed, epsilon=epsilon, output_images=True, max_output=50, norm_type=norm_type, output_path=adv_dir, adv_file_output=adv_data_file)
     else:
         print('Loading attack')
         Xa = np.load(path.join(adv_dir, adv_data_file))
@@ -167,7 +192,7 @@ if __name__ == '__main__':
 
     #Calculate adversarial kernels and error
     classify('adv', Xa, Yt, 'a', X, K_inv, K_inv_Y, kern, adv_kernels_dir, attack_dir)
-
+    
 
 
 
