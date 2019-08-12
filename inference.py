@@ -14,6 +14,7 @@ import deep_ckern
 
 from absl import flags
 import matplotlib.pyplot as plt
+from sklearn.utils.extmath import softmax
 
 def make_symm(A, lower=False):
     i_lower = np.tril_indices(A.shape[-1], -1)
@@ -52,13 +53,18 @@ def summarize_error(K_zz, K_z_x, Y_z, K_inv, K_inv_Y, key, path, make_plots=True
     descrip = key
     Y_pred = K_z_x @ K_inv_Y
 
+    #
     if len(Y_pred.shape) == 1 or Y_pred.shape[1] == 1:
+        print("**I'm not sure why we're in this case**")
         Y_pred_n = np.ravel(Y_pred >= 0)
     else:
-        Y_pred_n = np.argmax(Y_pred.squeeze(), 1)
+        Y_pred = Y_pred.squeeze()
+        class_probs = softmax(Y_pred)
+        #import pdb; pdb.set_trace()
+        Y_pred_n = np.argmax(class_probs, 1)
     
     t = sklearn.metrics.accuracy_score(np.argmax(Y_z, 1), Y_pred_n)
-    print(key, 'error: ',(1-t)*100)
+    print(key, 'error: ',(1-t)*100,'%')
     
 
     if make_plots:
@@ -73,16 +79,16 @@ def summarize_error(K_zz, K_z_x, Y_z, K_inv, K_inv_Y, key, path, make_plots=True
         plt.close()
 
         
+        #Y_pred[0] = 1 - Y_pred[1] because we're applying softmax, so we only bother plotting one
         plt.figure(figsize=(12, 9), dpi=100)
-        plt.scatter(range(0,Y_pred.shape[0]), Y_pred[:,0], alpha=0.3, c=variance, cmap='YlOrRd') 
+        plt.scatter(range(0,class_probs.shape[0]), class_probs[:,0], alpha=0.3, c=variance, cmap='YlOrRd') 
         plt.colorbar()
         axes = plt.gca()
         #axes.set_ylim([-1.5,1.5])
         plt.savefig("{}/prediction_{}.png".format(path, descrip), format='png')
         plt.close()
         
-        #Y_pred[0] = -Y_pred[1], so we only bother plotting one
-
+#THe predictions received as input here should be the actual class predictions, already processed to be one-hot instead of real numbers
 def variance_accuracy_plots(variance, Y_pred, Y, path, descrip):
     correct_mask = (Y_pred - Y) == 0
     incorrect_mask = np.logical_not(correct_mask)
@@ -114,7 +120,7 @@ def load_array(path):
     if os.path.islink(path):
         path = os.readlink(path)
     return np.load(path).squeeze()
-
+'''
 def conjugate_inference():
     print("Centering labels")
     Y[Y == 0.] = -1
@@ -161,7 +167,7 @@ def conjugate_inference():
     df.to_csv(csv_file)
     print(df)
 
-'''
+
 
 def main(_):
     start_time = time.time()
