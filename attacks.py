@@ -37,7 +37,7 @@ def fgsm_cleverhans(K_inv_Y, kernel, X, Xt, Yt, epsilon=0.3, norm_type=np.Inf, o
         os.mkdir(output_images_dir)
     sess = gpflow.get_default_session()
 
-    fgsm_params = {'eps': epsilon,'ord': norm_type}
+    fgsm_params = {'eps': epsilon,'ord': norm_type, 'clip_min': np.float64(0.0), 'clip_max': np.float64(1.0)}
 
     #Placeholders
     K_inv_Y_ph = tf.placeholder(settings.float_type, K_inv_Y.shape, 'K_inv_Y')
@@ -50,7 +50,7 @@ def fgsm_cleverhans(K_inv_Y, kernel, X, Xt, Yt, epsilon=0.3, norm_type=np.Inf, o
     #Convert callable to model
     model = cleverhans.model.CallableModelWrapper(predict_callable, 'logits')
     #Define attack part of graph
-    fgsm = FastGradientMethod(model, sess=sess) 
+    fgsm = FastGradientMethod(model, sess=sess, dtypestr='float64') 
     x = tf.placeholder(settings.float_type, shape=(None, Xt.shape[1]))
     adv_x_op = fgsm.generate(x, **fgsm_params)
     preds_adv_op = model.get_logits(adv_x_op)
@@ -76,10 +76,8 @@ def fgsm_cleverhans(K_inv_Y, kernel, X, Xt, Yt, epsilon=0.3, norm_type=np.Inf, o
                 scipy.misc.toimage(adv_img, cmin=0, cmax=255).save(path.join(output_images_dir, 'gp_attack_{}_noisy.png'.format(batch_num*batch_size + c)))
         batch_num += 1
 
-    np.save(os.path.join(output_path,adv_file_output.format(epsilon, norm_type)), adv_examples, allow_pickle=False)
-
-
-
+    np.save(os.path.join(output_path,(adv_file_output + '.npy').format(epsilon, norm_type)), adv_examples, allow_pickle=False)
+    return adv_examples
 
 def fgsm(K_inv_Y, kernel, X, Xt, Yt, seed=20,
     epsilon=0.3, clip_min=0.0, clip_max=1.0, norm_type='inf', batch_size=1, 
@@ -186,7 +184,7 @@ def fgsm(K_inv_Y, kernel, X, Xt, Yt, seed=20,
                 scipy.misc.toimage(adv_img, cmin=0, cmax=255).save(path.join(output_images_dir, 'gp_attack_{}_noisy.png'.format(batch_num*batch_size + c)))
         batch_num += 1
 
-    np.save(os.path.join(output_path,adv_file_output.format(epsilon, norm_type)), adv_examples, allow_pickle=False)
+    np.save(os.path.join(output_path,(adv_file_output + '.npy').format(epsilon, norm_type)), adv_examples, allow_pickle=False)
     return adv_examples
 
 '''
