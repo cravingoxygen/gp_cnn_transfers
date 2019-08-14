@@ -334,11 +334,11 @@ def main(_=None):
   #test_pdf()
 
 if __name__ == '__main__':
-  flags.DEFINE_integer('nb_epochs', NB_EPOCHS,
-                       'Number of epochs to train model')
-  flags.DEFINE_integer('batch_size', BATCH_SIZE,
-                       'Size of training batches')
-  flags.DEFINE_float('learning_rate', LEARNING_RATE,
-                     'Learning rate for training')
+  flags.DEFINE_integer('nb_epochs', NB_EPOCHS, 'Number of epochs to train model')
+  flags.DEFINE_integer('batch_size', BATCH_SIZE, 'Size of training batches')
+  flags.DEFINE_float('learning_rate', LEARNING_RATE, 'Learning rate for training')
+  
+  flags.DEFINE_bool('generate_adversarial', False, 'Whether to generate a new attack, or use the existing, specified file')
+  flags.DEFINE_string('adv_data', LEARNING_RATE, 'File to use as adversarial data')
 
   tf.app.run()
