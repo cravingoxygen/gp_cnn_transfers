@@ -22,7 +22,7 @@ from torch.autograd import Variable
 from torchvision import datasets, transforms
 import os
 
-from cleverhans.attacks import FastGradientMethod
+from cleverhans.attacks import FastGradientMethod, CarliniWagnerL2
 from cleverhans.model import CallableModelWrapper
 from cleverhans.utils_pytorch import convert_pytorch_model_to_tf
 
@@ -34,6 +34,14 @@ import math
 
 FLAGS = flags.FLAGS
 
+DTYPE_STR = 'float32'
+
+if DTYPE_STR == 'float64':
+	FLOAT_TYPE = np.float64
+	TF_FLOAT_TYPE=tf.float64
+else:
+	FLOAT_TYPE = np.float32
+	TF_FLOAT_TYPE=tf.float32
 NB_EPOCHS = 6
 BATCH_SIZE = 128
 LEARNING_RATE = .001
@@ -55,7 +63,7 @@ def extract_images_and_labels(class_one, class_two, images, labels):
 	extracted_labels = np.concatenate( (np.array([0]*np.sum(class_one_mask)), np.array([1]*np.sum(class_two_mask))) )
 	return (extracted_images, extracted_labels)
 
-def mnist_sevens_vs_twos(data_path, noisy=True, float_type=np.float64): 
+def mnist_sevens_vs_twos(data_path, noisy=True, float_type=FLOAT_TYPE): 
 	from tensorflow.examples.tutorials.mnist import input_data
 	old_v = tf.logging.get_verbosity()
 	tf.logging.set_verbosity(tf.logging.ERROR)
@@ -82,7 +90,7 @@ def mnist_sevens_vs_twos(data_path, noisy=True, float_type=np.float64):
 class MNIST_Dataset(torch.utils.data.Dataset):
 	def __init__(self, images, labels):
 		assert images.shape[0] == labels.shape[0]
-		self.images = images.reshape(-1, 1, 28, 28).astype(np.float32)
+		self.images = images.reshape(-1, 1, 28, 28).astype(FLOAT_TYPE)
 		self.labels = labels.astype(np.long)
 
 	def __getitem__(self, index):
@@ -97,8 +105,8 @@ class Adversarial_MNIST_Dataset(torch.utils.data.Dataset):
 		labels = np.load(labels_path)
 		
 		assert images.shape[0] == labels.shape[0]
-		self.images = np.expand_dims(images, 1).astype(np.float32)
-		self.labels = labels.astype(np.float32)
+		self.images = np.expand_dims(images, 1).astype(FLOAT_TYPE)
+		self.labels = labels.astype(FLOAT_TYPE)
 
 	def __getitem__(self, index):
 		return self.images[index], self.labels[index]
@@ -219,9 +227,9 @@ def train_model(data_dir, nb_epochs=NB_EPOCHS, batch_size=BATCH_SIZE, train_end=
 	
 	return torch_model
 
-def generate_attack(torch_model, output_dir, output_samples=True, report_file=None): #attack, attack_params, 
-	test_dataset[1] = mnist_sevens_vs_twos(data_dir, noisy=True)
-	test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size)
+def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='', output_samples=True, report_file=None):
+	test_dataset = mnist_sevens_vs_twos(data_dir, noisy=True)[1]
+	test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
 	
 	# Convert pytorch model to a tf_model and wrap it in cleverhans
 	tf_model_fn = convert_pytorch_model_to_tf(torch_model)
@@ -229,51 +237,51 @@ def generate_attack(torch_model, output_dir, output_samples=True, report_file=No
 	
 	# We use tf for evaluation on adversarial data
 	sess = tf.Session()
-	x_op = tf.placeholder(tf.float32, shape=(None, 1, 28, 28,))
+	x_op = tf.placeholder(TF_FLOAT_TYPE, shape=(None, 1, 28, 28,))
 
-	# Create an FGSM attack
-	fgsm_op = FastGradientMethod(cleverhans_model, sess=sess)
-	epsilon = 10
-	norm = 2
-	fgsm_params = {'eps': epsilon,
-				 'clip_min': 0.,
-				 'clip_max': 1.,
-				 'ord': norm}
-				 
-	attack_name = 'CNN_FGSM_eps={}_norm={}'.format(epsilon, norm)
+	if attack == 'fgsm':
+		attack_op = FastGradientMethod(cleverhans_model, sess=sess, dtypestr=DTYPE_STR)
+		attack_name = 'CNN_FGSM_eps={}_norm={}'.format(attack_params['eps'], attack_params['ord'])
+	elif attack == 'cw_l2':
+		attack_op = CarliniWagnerL2(cleverhans_model, sess=sess, dtypestr=DTYPE_STR)
+		attack_name = 'CNN_cw_l2_conf={}'.format(attack_params['confidence'])
+
 	
 	attack_dir = os.path.join(output_dir, attack_name)
 	if not os.path.exists(attack_dir):
 		os.makedirs(attack_dir)
 	print("Directory " , attack_dir ,  " Created ")
 
-	adv_x_op = fgsm_op.generate(x_op, **fgsm_params)
+	adv_x_op = attack_op.generate(x_op, **attack_params)
 	adv_preds_op = tf_model_fn(adv_x_op)
 	
 	# Run an evaluation of our model against fgsm
 	total = 0
 	correct = 0
 	
+	c = 0
 	all_adv_preds = np.array(0)
 	for xs, ys in test_loader:
 		adv_preds = sess.run(adv_preds_op, feed_dict={x_op: xs})
 		all_adv_preds = np.append(all_adv_preds, adv_preds)
 		correct += (np.argmax(adv_preds, axis=1) == ys.cpu().numpy()).sum()
 		total += len(xs)
+		print(c)
+		c += 1
 
 	np.save(os.path.join(output_dir,'adv_predictions'), all_adv_preds)
 	acc = float(correct) / total
 	print('Adv error: {:.3f}'.format((1 - acc) * 100))
 	
 	if report_file is not None:
-		f = open(os.path.join(output_path,report_file), "a+")
+		f = open(report_file, "a+")
 		f.write('{}	error: {}%'.format(attack_name, (1 - acc)*100))
 		f.close()
 	
-	single_adv_x_op = tf.placeholder(tf.float32, shape=(1,28,28))
+	single_adv_x_op = tf.placeholder(TF_FLOAT_TYPE, shape=(1,28,28))
 	encode_op = tf.image.encode_png(tf.reshape(tf.cast(single_adv_x_op*255, tf.uint8), (28, 28, 1)))
 
-	adv_images, clean_images, adv_labels = None, None, None
+	adv_images = None
 
 	#Print the first and 8th batches of images i.e. a batch of 2s and a batch of 7s
 	b = 0
@@ -282,11 +290,10 @@ def generate_attack(torch_model, output_dir, output_samples=True, report_file=No
 		output_image_path = os.path.join(output_dir, attack_name)
 		print('Images will be saved to: {}'.format(output_image_path))
 		
-	
 	for xs, ys in test_loader:
 		adv_xs = sess.run(adv_x_op, feed_dict={x_op: xs})
 		if output_samples and (b == 0 or b == 10):
-			c = b*batch_size
+			c = b*BATCH_SIZE
 			for i in range(0,adv_xs.shape[0]):
 				enc_img = sess.run(encode_op, feed_dict={single_adv_x_op: adv_xs[i]})
 				f = open(output_image_path + '/{}.png'.format(attack_name, c), "wb+")
@@ -296,16 +303,11 @@ def generate_attack(torch_model, output_dir, output_samples=True, report_file=No
 	
 		if adv_images is None:
 			adv_images = np.array(adv_xs.reshape(adv_xs.shape[0], 28, 28))
-			#clean_images = np.array(xs.reshape(xs.shape[0], 28, 28))
-			#adv_labels = np.array(ys)
 		else:
 			adv_images = np.append(adv_images, adv_xs.reshape(adv_xs.shape[0], 28, 28), 0)
-			#clean_images = np.append(clean_images, xs.reshape(xs.shape[0], 28, 28), 0)
-			#adv_labels = np.append(adv_labels, ys, 0)
 		b += 1
 	
 	np.save(output_dir + '/two_vs_seven_adv_{}'.format(attack_name), adv_images, allow_pickle=False)
-	#np.save(output_dir + '/two_vs_seven_labels', adv_labels, allow_pickle=False)
 
 def main(_=None):
 	#from cleverhans_tutorials import check_installation
@@ -321,13 +323,33 @@ def main(_=None):
 	torch_model = torch.load(model_path, map_location=torch.device('cuda'))
 	
 	
-	#report_file = os.path.join(FLAGS.data_dir, FLAGS.report)
-	#generate_attack(torch_model, FLAGS.data_dir, report_file=FLAGS.report_file)
+	
+	report_file = os.path.join(FLAGS.data_dir, FLAGS.report)
+	'''
+	epsilon = 10
+	norm = 2
+	fgsm_params = {'eps': epsilon,
+				 'clip_min': FLOAT_TYPE(0.),
+				 'clip_max': FLOAT_TYPE(1.),
+				 'ord': norm}
+		'batch_size', , 'targeted', 'learning_rate',
+        'binary_search_steps', 'max_iterations', 'abort_early',
+		'initial_const', 
+	'''
+	cw_l2_params = {
+		'max_iterations': 200,
+		'confidence': 0.,
+		'clip_min': FLOAT_TYPE(0.),
+		'clip_max': FLOAT_TYPE(1.),
+	}
+	generate_attack('cw_l2', cw_l2_params, torch_model, FLAGS.data_dir, report_file=report_file, output_dir=FLAGS.data_dir)
+	'''
 	print(FLAGS.attack_name)
 	adv_images_file = os.path.join(FLAGS.data_dir, '{}/two_vs_seven_{}.npy'.format(FLAGS.attack_name,FLAGS.attack_name))
 	labels_file = os.path.join(FLAGS.data_dir, FLAGS.labels)
 	report_file = os.path.join(FLAGS.output_path, FLAGS.report)
 	transfer_attack(torch_model, attack_name=FLAGS.attack_name, adv_images_file=adv_images_file, labels_file=labels_file, report_file=report_file)
+	'''
 	
 
 if __name__ == '__main__':
@@ -341,7 +363,7 @@ if __name__ == '__main__':
 	#This should be in the data_dir if we're generating an attack.
 	#Otherwise, this should be in the adv_images's parent directory
 	flags.DEFINE_string('output_path', '/scratch/etv21/conv_gp_data/expA1/', "Directory of report file")
-	flags.DEFINE_string('report', 'transfer_report_arch0.txt', "The CNNs accuracy will be appended to this file.")
+	flags.DEFINE_string('report', 'cnn_cw_l2_arch0.txt', "The CNNs accuracy will be appended to this file.")
 	flags.DEFINE_string('model', 'cnn_7_vs_2.pt', "The trained CNN")
 
 	tf.app.run()
