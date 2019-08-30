@@ -21,9 +21,87 @@ import h5py
 import scipy
 
 import cleverhans.model
-from cleverhans.attacks import FastGradientMethod
+from cleverhans.attacks import FastGradientMethod, CarliniWagnerL2
 #from tensorflow.nn import softmax_cross_entropy_with_logits_v2
 #from tensorflow.losses import softmax_cross_entropy
+
+def FGSM_Params(eps, ord):
+    return dict(
+            eps=eps,
+            ord=ord,
+            clip_min=np.float64(0.0),
+            clip_max=np.float64(1.0),
+    )
+
+def CW_L2_Params(confidence=0, learning_rate=5e-3, binary_search_steps=6, max_iterations=500, initial_const=1e-2,abort_early=True):
+    return dict(
+            batch_size=1,
+            confidence=confidence,
+            learning_rate=learning_rate,
+            binary_search_steps=binary_search_steps,
+            max_iterations=max_iterations,
+            abort_early=abort_early,
+            initial_const=initial_const,
+            clip_min=np.float64(0.0),
+            clip_max=np.float64(1.0),
+    )
+
+def attack(attack_method, attack_params, K_inv_Y, kernel, X, Xt, Yt, output_path, adv_file_output, output_images=True, max_output=128):
+    print(attack_params)
+    batch_size = 1
+    #Create output directory if it doesn't exist
+    if not os.path.exists(output_path):
+        os.mkdir(output_path)
+    output_images_dir = os.path.join(output_path, '{}_images'.format(adv_file_output))
+    if output_images and not os.path.exists(output_images_dir):
+        os.mkdir(output_images_dir)
+    sess = gpflow.get_default_session()
+
+    K_inv_Y_ph = tf.constant(K_inv_Y)
+    X2_ph = tf.constant(X)
+    #K_inv_Y_ph = tf.placeholder(settings.float_type, K_inv_Y.shape, 'K_inv_Y')
+    #X2_ph = tf.placeholder(settings.float_type, X.shape, 'X_train')
+    #Callable that returns logits
+    def predict_callable(xt):
+        Kxtx_op = kernel.K(xt, X2_ph)
+        predict_op = tf.matmul(Kxtx_op, K_inv_Y_ph)
+        return predict_op
+    #Convert callable to model
+    model = cleverhans.model.CallableModelWrapper(predict_callable, 'logits')
+    #Define attack part of graph
+    if (attack_method == 'fgsm'):
+        attack_obj = FastGradientMethod(model, sess=sess, dtypestr='float64')
+    elif (attack_method == 'cw_l2'):
+        attack_obj = CarliniWagnerL2(model, sess=sess, dtypestr='float64')
+
+    x = tf.placeholder(settings.float_type, shape=(None, Xt.shape[1]))
+    adv_x_op = attack_obj.generate(x, **attack_params)
+    preds_adv_op = model.get_logits(adv_x_op)
+    
+    adv_examples = None
+    batch_num = 0
+    for k in tqdm.trange(0, Yt.shape[0], batch_size):
+        end = min(k + batch_size , Yt.shape[0])
+        #feed_dict = {K_inv_Y_ph: K_inv_Y, X_ph: Xt[k:end, :], X2_ph: X}
+        feed_dict = { x: Xt[k:end, :]}
+        yt = Yt[k:end, :]
+        adv_x, preds_adv = sess.run((adv_x_op, preds_adv_op), feed_dict=feed_dict)
+        
+        if adv_examples is None:
+            adv_examples = np.array(adv_x.reshape(batch_size, 28*28))
+        else:
+            adv_examples = np.append(adv_examples, adv_x.reshape(batch_size, 28*28), 0)
+
+        if output_images and (max_output == None or max_output > batch_num * batch_size or (batch_num*batch_size >= 1280 and batch_num*batch_size < 1280 + max_output)):
+            for c in range(0, batch_size):
+                adv_img = adv_x[c]*255
+                adv_img = (adv_img.astype(int)).reshape(28,28)
+                scipy.misc.toimage(adv_img, cmin=0, cmax=255).save(path.join(output_images_dir, 'gp_attack_{}_noisy.png'.format(batch_num*batch_size + c)))
+        batch_num += 1
+
+    np.save(os.path.join(output_path, adv_file_output + '.npy'), adv_examples, allow_pickle=False)
+    
+    return adv_examples
 
 
 def fgsm_cleverhans(K_inv_Y, kernel, X, Xt, Yt, epsilon=0.3, norm_type=np.Inf, output_images=True, max_output=128, output_path='/scratch/etv21/conv_gp_data/MNIST_data/cleverhans_fgsm/',  adv_file_output='cleverhans_fgsm_eps={}_norm_{}'):
@@ -186,36 +264,3 @@ def fgsm(K_inv_Y, kernel, X, Xt, Yt, seed=20,
 
     np.save(os.path.join(output_path,(adv_file_output + '.npy').format(epsilon, norm_type)), adv_examples, allow_pickle=False)
     return adv_examples
-
-'''
-if __name__ == '__main__':
-    seed = 0
-    if len(sys.argv) > 1:
-        seed = int(sys.argv[1])
-    else:
-        seed = 20
-    
-    n_gpus = 1
-    root_path = "/scratch/etv21/conv_gp_data/"
-    #Path to where the existing kernels are
-    exp_path = os.path.join(root_path, "exp4/exp4_E2")
-    #Path to the MNIST dataset
-    data_path = os.path.join(root_path,'MNIST_data/eps=0.3_arch_0')
-    print('Data path: ' + data_path)
-
-    kernel_path = os.path.join(exp_path, "kernels")
-    if not os.path.exists(path):
-        print("'kernels' directory not found at " , exp_path )
-
-    np.random.seed(seed)
-    tf.set_random_seed(seed)
-
-    X, Y, _, _, Xt, Yt = save_kernel_simple.mnist_sevens_vs_twos(data_path)
-    K_inv = training_kernel_inverse(kernel_path, seed)
-    K_inv_Y = K_inv @ Y
-    kern = save_kernel_simple.create_kern(save_kernel_simple.SimpleMNISTParams(seed))
-    print("Generating attack:")
-    Xa = fgsm(K_inv_Y, kern, X, Xt, Yt, seed=seed, epsilon=0.3, output_images=True, max_output=50, norm_type=np.Inf)
-
-    
-'''

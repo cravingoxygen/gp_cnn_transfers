@@ -26,11 +26,14 @@ from cleverhans.attacks import FastGradientMethod, CarliniWagnerL2
 from cleverhans.model import CallableModelWrapper
 from cleverhans.utils_pytorch import convert_pytorch_model_to_tf
 
+from attacks import CW_L2_Params
+
 import matplotlib.pyplot as plt
 from PIL import Image 
 import pickle
 import tqdm
 import math
+import time
 
 FLAGS = flags.FLAGS
 
@@ -182,6 +185,7 @@ def transfer_attack(torch_model, attack_name, adv_images_file, labels_file, batc
 		f = open(report_file, "a+")
 		f.write('{}	error: {}%'.format(attack_name, (1 - acc)*100))
 		f.close()
+
 	return
 	
 
@@ -228,6 +232,7 @@ def train_model(data_dir, nb_epochs=NB_EPOCHS, batch_size=BATCH_SIZE, train_end=
 	return torch_model
 
 def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='', output_samples=True, report_file=None):
+	time_start = time.time()
 	test_dataset = mnist_sevens_vs_twos(data_dir, noisy=True)[1]
 	test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
 	
@@ -244,8 +249,10 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 		attack_name = 'CNN_FGSM_eps={}_norm={}'.format(attack_params['eps'], attack_params['ord'])
 	elif attack == 'cw_l2':
 		attack_op = CarliniWagnerL2(cleverhans_model, sess=sess, dtypestr=DTYPE_STR)
-		attack_name = 'CNN_cw_l2_conf={}'.format(attack_params['confidence'])
-
+		attack_name = 'CNN_cw_l2_conf={}_max_iter={}_bsteps={}'.format(attack_params['confidence'], attack_params['max_iterations'], attack_params['binary_search_steps'])
+	else:
+		print('ERROR - Unsupported attack specified')
+		return
 	
 	attack_dir = os.path.join(output_dir, attack_name)
 	if not os.path.exists(attack_dir):
@@ -255,57 +262,49 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 	adv_x_op = attack_op.generate(x_op, **attack_params)
 	adv_preds_op = tf_model_fn(adv_x_op)
 	
-	# Run an evaluation of our model against fgsm
-	total = 0
-	correct = 0
-	
-	c = 0
-	all_adv_preds = np.array(0)
-	for xs, ys in test_loader:
-		adv_preds = sess.run(adv_preds_op, feed_dict={x_op: xs})
-		all_adv_preds = np.append(all_adv_preds, adv_preds)
-		correct += (np.argmax(adv_preds, axis=1) == ys.cpu().numpy()).sum()
-		total += len(xs)
-		print(c)
-		c += 1
-
-	np.save(os.path.join(output_dir,'adv_predictions'), all_adv_preds)
-	acc = float(correct) / total
-	print('Adv error: {:.3f}'.format((1 - acc) * 100))
-	
-	if report_file is not None:
-		f = open(report_file, "a+")
-		f.write('{}	error: {}%'.format(attack_name, (1 - acc)*100))
-		f.close()
-	
 	single_adv_x_op = tf.placeholder(TF_FLOAT_TYPE, shape=(1,28,28))
 	encode_op = tf.image.encode_png(tf.reshape(tf.cast(single_adv_x_op*255, tf.uint8), (28, 28, 1)))
 
+	all_adv_preds = np.array(0)
 	adv_images = None
-
-	#Print the first and 8th batches of images i.e. a batch of 2s and a batch of 7s
-	b = 0
+	total = 0
+	correct = 0
 	c = 0
 	if output_samples:
 		output_image_path = os.path.join(output_dir, attack_name)
 		print('Images will be saved to: {}'.format(output_image_path))
 		
 	for xs, ys in test_loader:
-		adv_xs = sess.run(adv_x_op, feed_dict={x_op: xs})
-		if output_samples and (b == 0 or b == 10):
-			c = b*BATCH_SIZE
-			for i in range(0,adv_xs.shape[0]):
-				enc_img = sess.run(encode_op, feed_dict={single_adv_x_op: adv_xs[i]})
-				f = open(output_image_path + '/{}.png'.format(attack_name, c), "wb+")
-				f.write(enc_img)
-				f.close()
-				c += 1
+		adv_xs, adv_preds = sess.run((adv_x_op,adv_preds_op), feed_dict={x_op: xs})
+		all_adv_preds = np.append(all_adv_preds, adv_preds)
+		correct += (np.argmax(adv_preds, axis=1) == ys.cpu().numpy()).sum()
+		total += len(xs)
+
+		#Print the first and 8th batches of images i.e. a batch of 2s and a batch of 7s
+		if output_samples and (c < BATCH_SIZE or (c > 1280 and c < 1280 + BATCH_SIZE)):
+			enc_img = sess.run(encode_op, feed_dict={single_adv_x_op: adv_xs[0]}) #Only one image in a batch
+			f = open(output_image_path + '/{}.png'.format(c), "wb+")
+			f.write(enc_img)
+			f.close()
 	
 		if adv_images is None:
 			adv_images = np.array(adv_xs.reshape(adv_xs.shape[0], 28, 28))
 		else:
 			adv_images = np.append(adv_images, adv_xs.reshape(adv_xs.shape[0], 28, 28), 0)
-		b += 1
+
+		c += 1
+	
+	np.save(os.path.join(output_dir,'adv_predictions'), all_adv_preds)
+	acc = float(correct) / total
+	time_required = time.time() - time_start
+	print('Adv error: {:.3f}'.format((1 - acc) * 100))
+	print('Time required to generate attack: {}'.format(time_required))
+	
+	if report_file is not None:
+		f = open(report_file, "a+")
+		f.write('{}	error: {}%\n'.format(attack_name, (1 - acc)*100))
+		f.write('{}	time: {}%\n'.format(attack_name, time_required))
+		f.close()
 	
 	np.save(output_dir + '/two_vs_seven_adv_{}'.format(attack_name), adv_images, allow_pickle=False)
 
@@ -325,24 +324,16 @@ def main(_=None):
 	
 	
 	report_file = os.path.join(FLAGS.data_dir, FLAGS.report)
-	'''
-	epsilon = 10
-	norm = 2
-	fgsm_params = {'eps': epsilon,
-				 'clip_min': FLOAT_TYPE(0.),
-				 'clip_max': FLOAT_TYPE(1.),
-				 'ord': norm}
-		'batch_size', , 'targeted', 'learning_rate',
-        'binary_search_steps', 'max_iterations', 'abort_early',
-		'initial_const', 
-	'''
-	cw_l2_params = {
-		'max_iterations': 200,
-		'confidence': 0.,
-		'clip_min': FLOAT_TYPE(0.),
-		'clip_max': FLOAT_TYPE(1.),
-	}
-	generate_attack('cw_l2', cw_l2_params, torch_model, FLAGS.data_dir, report_file=report_file, output_dir=FLAGS.data_dir)
+
+	if FLAGS.attack == 'cw_l2':
+		param_set = CW_L2_Params(confidence=FLAGS.confidence, max_iterations=FLAGS.max_iterations, learning_rate=FLAGS.learning_rate, binary_search_steps=FLAGS.binary_search_steps)
+	else:
+		print("ERROR - Param set not implemented")
+		return
+
+
+	
+	generate_attack(FLAGS.attack, param_set, torch_model, FLAGS.data_dir, report_file=report_file, output_dir=FLAGS.data_dir)
 	'''
 	print(FLAGS.attack_name)
 	adv_images_file = os.path.join(FLAGS.data_dir, '{}/two_vs_seven_{}.npy'.format(FLAGS.attack_name,FLAGS.attack_name))
@@ -365,5 +356,12 @@ if __name__ == '__main__':
 	flags.DEFINE_string('output_path', '/scratch/etv21/conv_gp_data/expA1/', "Directory of report file")
 	flags.DEFINE_string('report', 'cnn_cw_l2_arch0.txt', "The CNNs accuracy will be appended to this file.")
 	flags.DEFINE_string('model', 'cnn_7_vs_2.pt', "The trained CNN")
+
+	flags.DEFINE_string('attack', 'cw_l2', 'Identifier for the attack to run')
+	flags.DEFINE_float('learning_rate', 5e-3, 'learning rate')
+	flags.DEFINE_float('confidence', 0, 'Confidence (Kappa)')
+	flags.DEFINE_integer('max_iterations', 200, 'Max iterations')
+	flags.DEFINE_integer('binary_search_steps', 5, 'Max iterations')
+
 
 	tf.app.run()
