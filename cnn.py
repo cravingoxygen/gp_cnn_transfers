@@ -12,6 +12,7 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import numpy as np
+import numpy.linalg as lin
 import tensorflow as tf
 from tensorflow.python.platform import flags
 import torch
@@ -22,11 +23,11 @@ from torch.autograd import Variable
 from torchvision import datasets, transforms
 import os
 
-from cleverhans.attacks import FastGradientMethod, CarliniWagnerL2
+from cleverhans.attacks import FastGradientMethod, CarliniWagnerL2, ProjectedGradientDescent, ElasticNetMethod
 from cleverhans.model import CallableModelWrapper
 from cleverhans.utils_pytorch import convert_pytorch_model_to_tf
 
-from attacks import CW_L2_Params
+from attacks import CW_L2_Params, EAD_Params, PGD_Params
 
 import matplotlib.pyplot as plt
 from PIL import Image 
@@ -46,7 +47,7 @@ else:
 	FLOAT_TYPE = np.float32
 	TF_FLOAT_TYPE=tf.float32
 NB_EPOCHS = 6
-BATCH_SIZE = 128
+BATCH_SIZE = 103
 LEARNING_RATE = .001
 
 SEED = 42
@@ -234,7 +235,7 @@ def train_model(data_dir, nb_epochs=NB_EPOCHS, batch_size=BATCH_SIZE, train_end=
 def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='', output_samples=True, report_file=None):
 	time_start = time.time()
 	test_dataset = mnist_sevens_vs_twos(data_dir, noisy=True)[1]
-	test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
+	test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=BATCH_SIZE)
 	
 	# Convert pytorch model to a tf_model and wrap it in cleverhans
 	tf_model_fn = convert_pytorch_model_to_tf(torch_model)
@@ -247,9 +248,15 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 	if attack == 'fgsm':
 		attack_op = FastGradientMethod(cleverhans_model, sess=sess, dtypestr=DTYPE_STR)
 		attack_name = 'CNN_FGSM_eps={}_norm={}'.format(attack_params['eps'], attack_params['ord'])
+	elif attack == 'pgd':
+		attack_op = ProjectedGradientDescent(cleverhans_model, sess=sess, dtypestr=DTYPE_STR)
+		attack_name = 'CNN_pgd_eps={}_eps_iter={}_nb_iter={}_ord={}'.format(attack_params['eps'],attack_params['eps_iter'], attack_params['nb_iter'], attack_params['ord'])
 	elif attack == 'cw_l2':
 		attack_op = CarliniWagnerL2(cleverhans_model, sess=sess, dtypestr=DTYPE_STR)
-		attack_name = 'CNN_cw_l2_conf={}_max_iter={}_bsteps={}'.format(attack_params['confidence'], attack_params['max_iterations'], attack_params['binary_search_steps'])
+		attack_name = 'CNN_cw_l2_conf={}_max_iter={}_init_c={}_lr={}'.format(attack_params['confidence'], attack_params['max_iterations'], attack_params['initial_const'], attack_params['learning_rate'])
+	elif attack == 'ead':
+		attack_op = ElasticNetMethod(cleverhans_model, sess=sess, dtypestr=DTYPE_STR)
+		attack_name = 'CNN_ead_beta={}_conf={}_max_iter={}_init_c={}'.format(attack_params['beta'],attack_params['confidence'], attack_params['max_iterations'], attack_params['initial_const'])
 	else:
 		print('ERROR - Unsupported attack specified')
 		return
@@ -258,6 +265,9 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 	if not os.path.exists(attack_dir):
 		os.makedirs(attack_dir)
 	print("Directory " , attack_dir ,  " Created ")
+	f = open(os.path.join(attack_dir, "params.txt"),"w+")
+	f.write( str(attack_params) )
+	f.close()
 
 	adv_x_op = attack_op.generate(x_op, **attack_params)
 	adv_preds_op = tf_model_fn(adv_x_op)
@@ -270,31 +280,57 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 	total = 0
 	correct = 0
 	c = 0
+	first_batch = True
 	if output_samples:
-		output_image_path = os.path.join(output_dir, attack_name)
+		output_image_path = os.path.join(attack_dir, "images")
 		print('Images will be saved to: {}'.format(output_image_path))
-		
+		if not os.path.exists(output_image_path):
+			os.makedirs(output_image_path)
+	
 	for xs, ys in test_loader:
 		adv_xs, adv_preds = sess.run((adv_x_op,adv_preds_op), feed_dict={x_op: xs})
 		all_adv_preds = np.append(all_adv_preds, adv_preds)
 		correct += (np.argmax(adv_preds, axis=1) == ys.cpu().numpy()).sum()
 		total += len(xs)
-
-		#Print the first and 8th batches of images i.e. a batch of 2s and a batch of 7s
-		if output_samples and (c < BATCH_SIZE or (c > 1280 and c < 1280 + BATCH_SIZE)):
-			enc_img = sess.run(encode_op, feed_dict={single_adv_x_op: adv_xs[0]}) #Only one image in a batch
-			f = open(output_image_path + '/{}.png'.format(c), "wb+")
-			f.write(enc_img)
-			f.close()
+		
+		if output_samples and (c < BATCH_SIZE or (c >= 1280 and c < 1280 + BATCH_SIZE)):
+			if first_batch:
+				print("**For twos***")
+			else:
+				print("**For sevens**")
+				
+			distance = (xs.numpy() - adv_xs).squeeze()
+			inf_dist = lin.norm(distance, ord=np.Inf, axis=(1,2))
+			l2_dist = lin.norm(distance, ord=2, axis=(1,2))
+			
+			if report_file is not None:
+				f = open(report_file, "a+")
+				if first_batch:
+					f.write("\n{} **For twos**\n".format(attack_name))
+				else:
+					f.write("\n{} **For sevens**\n".format(attack_name))
+				f.write('L2 norm - ave: {}\t std: {}\t max: {} min: {}\n'.format(l2_dist.mean(), l2_dist.std(), l2_dist.max(), l2_dist.min()))
+				f.write('LInf norm - ave: {}\t std: {}\t max: {} min: {}\n'.format(inf_dist.mean(), inf_dist.std(), inf_dist.max(), inf_dist.min()))
+				f.close()
+			
+			print("L2 norm - ave: {}\t std: {}\t max: {} min: {}".format(l2_dist.mean(), l2_dist.std(), l2_dist.max(), l2_dist.min()))
+			print("LInf norm - ave: {}\t std: {}\t max: {} min: {}".format(inf_dist.mean(), inf_dist.std(), inf_dist.max(), inf_dist.min()))
+			for i in range(xs.shape[0]):
+			#Print the first and 8th batches of images i.e. a batch of 2s and a batch of 7s
+				enc_img = sess.run(encode_op, feed_dict={single_adv_x_op: adv_xs[i]}) #Only one image in a batch
+				f = open(output_image_path + '/{}.png'.format(c), "wb+")
+				f.write(enc_img)
+				f.close()
+				c += 1
 	
+		first_batch = False
 		if adv_images is None:
 			adv_images = np.array(adv_xs.reshape(adv_xs.shape[0], 28, 28))
 		else:
 			adv_images = np.append(adv_images, adv_xs.reshape(adv_xs.shape[0], 28, 28), 0)
 
-		c += 1
 	
-	np.save(os.path.join(output_dir,'adv_predictions'), all_adv_preds)
+	np.save(os.path.join(output_dir,'adv_predictions_{}'.format(attack_name)), all_adv_preds)
 	acc = float(correct) / total
 	time_required = time.time() - time_start
 	print('Adv error: {:.3f}'.format((1 - acc) * 100))
@@ -321,18 +357,21 @@ def main(_=None):
 	#But now that we've saved it, we can just reload it every time:
 	torch_model = torch.load(model_path, map_location=torch.device('cuda'))
 	
-	
-	
 	report_file = os.path.join(FLAGS.data_dir, FLAGS.report)
-
+	#import pdb; pdb.set_trace()
 	if FLAGS.attack == 'cw_l2':
-		param_set = CW_L2_Params(confidence=FLAGS.confidence, max_iterations=FLAGS.max_iterations, learning_rate=FLAGS.learning_rate, binary_search_steps=FLAGS.binary_search_steps)
+		param_set = CW_L2_Params(confidence=FLAGS.confidence, max_iterations=FLAGS.max_iterations, learning_rate=FLAGS.learning_rate, 
+			binary_search_steps=FLAGS.binary_search_steps, initial_const=FLAGS.initial_const, batch_size=BATCH_SIZE)
+	elif FLAGS.attack == 'ead':
+		param_set = EAD_Params(beta=FLAGS.beta, confidence=FLAGS.confidence, max_iterations=FLAGS.max_iterations, learning_rate=FLAGS.learning_rate, 
+			binary_search_steps=FLAGS.binary_search_steps, initial_const=FLAGS.initial_const, batch_size=BATCH_SIZE)
+	elif FLAGS.attack == 'pgd':
+		param_set = PGD_Params(eps=FLAGS.eps, eps_iter=FLAGS.eps_iter, ord=FLAGS.ord, nb_iter=FLAGS.nb_iter)
 	else:
 		print("ERROR - Param set not implemented")
 		return
 
 
-	
 	generate_attack(FLAGS.attack, param_set, torch_model, FLAGS.data_dir, report_file=report_file, output_dir=FLAGS.data_dir)
 	'''
 	print(FLAGS.attack_name)
@@ -346,22 +385,29 @@ def main(_=None):
 if __name__ == '__main__':
 	
 	#This directory should contain the MNIST zip files. Also, the attack data file should be in a subdirectory of this folder
-	flags.DEFINE_string('data_dir', '/scratch/etv21/conv_gp_data/MNIST_data/expA/', 'The directory containing the MNIST data files')
-	#Inside the data_dir folder
+	flags.DEFINE_string('data_dir', '/home/squishymage/cnn_gp/training_data', 'The directory containing the MNIST data files')
+	#Inside the data_dir folder #Do we need this?
 	flags.DEFINE_string('labels', 'two_vs_seven_labels.npy', 'File with labels for adversarial data. Should be inside the data_dir')
 	#This is used to infer the location of the attack images. Not necessary to specify when generating attacks, then the name is inferred.
 	flags.DEFINE_string('attack_name', 'cleverhans_FGSM_eps=0.1_norm_inf', 'Name of attack (eg. CNN_FGSM_eps=0.3_norm=inf). Used to infer location of adv data file.') 
 	#This should be in the data_dir if we're generating an attack.
 	#Otherwise, this should be in the adv_images's parent directory
-	flags.DEFINE_string('output_path', '/scratch/etv21/conv_gp_data/expA1/', "Directory of report file")
+	flags.DEFINE_string('output_path', '/home/squishymage/cnn_gp/cnn_attacks', "Directory of report file")
 	flags.DEFINE_string('report', 'cnn_cw_l2_arch0.txt', "The CNNs accuracy will be appended to this file.")
 	flags.DEFINE_string('model', 'cnn_7_vs_2.pt', "The trained CNN")
 
 	flags.DEFINE_string('attack', 'cw_l2', 'Identifier for the attack to run')
-	flags.DEFINE_float('learning_rate', 5e-3, 'learning rate')
+	flags.DEFINE_float('learning_rate', 5e-2, 'learning rate')
+	flags.DEFINE_float('initial_const', 1.0, 'Initial value for the constant that determines the tradeoff b/w distortion and attack success')
 	flags.DEFINE_float('confidence', 0, 'Confidence (Kappa)')
-	flags.DEFINE_integer('max_iterations', 200, 'Max iterations')
-	flags.DEFINE_integer('binary_search_steps', 5, 'Max iterations')
+	flags.DEFINE_float('beta', 1e-2, 'Beta, tradeoff between L1 and L2 (EAD)')
+	flags.DEFINE_integer('max_iterations', 1, 'Max iterations')
+	flags.DEFINE_integer('binary_search_steps', 6, 'Max binary search steps for c')
 
+	flags.DEFINE_integer('nb_iter', 10, 'Number of iterations for PGD')
+	flags.DEFINE_float('eps', 0.3, 'Max perturbation')
+	flags.DEFINE_float('eps_iter', 0.05, 'Step perturbation')
+	flags.DEFINE_float('ord', np.Inf, 'Order of norm')
+	
 
 	tf.app.run()

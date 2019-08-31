@@ -25,6 +25,33 @@ from cleverhans.attacks import FastGradientMethod, CarliniWagnerL2
 #from tensorflow.nn import softmax_cross_entropy_with_logits_v2
 #from tensorflow.losses import softmax_cross_entropy
 
+def PGD_Params(eps=0.3, eps_iter=0.05, ord=np.Inf, nb_iter=10, rand_init=True, clip_grad=False):
+	return dict(
+		eps=eps,
+		eps_iter=eps_iter,
+		ord=ord,
+		nb_iter=nb_iter,
+		rand_init=rand_init,
+		clip_grad=clip_grad,
+		clip_min=np.float64(0.0),
+		clip_max=np.float64(1.0),
+	)
+
+def EAD_Params(beta=1e-2, confidence=0, decision_rule='EN', learning_rate=5e-3, binary_search_steps=6, max_iterations=500, initial_const=1e-2,abort_early=True,batch_size=1):
+	return dict(
+		beta=beta,
+		decision_rule=decision_rule,
+		batch_size=batch_size,
+		confidence=confidence,
+		learning_rate=learning_rate,
+		binary_search_steps=binary_search_steps,
+		max_iterations=max_iterations,
+		abort_early=abort_early,
+		initial_const=initial_const,
+		clip_min=np.float64(0.0),
+		clip_max=np.float64(1.0),
+	)
+
 def FGSM_Params(eps, ord):
     return dict(
             eps=eps,
@@ -33,9 +60,9 @@ def FGSM_Params(eps, ord):
             clip_max=np.float64(1.0),
     )
 
-def CW_L2_Params(confidence=0, learning_rate=5e-3, binary_search_steps=6, max_iterations=500, initial_const=1e-2,abort_early=True):
+def CW_L2_Params(confidence=0, learning_rate=5e-3, binary_search_steps=6, max_iterations=500, initial_const=1e-2,abort_early=True, batch_size=1):
     return dict(
-            batch_size=1,
+            batch_size=batch_size,
             confidence=confidence,
             learning_rate=learning_rate,
             binary_search_steps=binary_search_steps,
