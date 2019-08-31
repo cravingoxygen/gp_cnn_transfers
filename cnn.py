@@ -27,7 +27,7 @@ from cleverhans.attacks import FastGradientMethod, CarliniWagnerL2, ProjectedGra
 from cleverhans.model import CallableModelWrapper
 from cleverhans.utils_pytorch import convert_pytorch_model_to_tf
 
-from attacks import CW_L2_Params, EAD_Params, PGD_Params
+from attacks import CW_L2_Params, EAD_Params, PGD_Params, FGSM_Params
 
 import matplotlib.pyplot as plt
 from PIL import Image 
@@ -293,16 +293,17 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 		correct += (np.argmax(adv_preds, axis=1) == ys.cpu().numpy()).sum()
 		total += len(xs)
 		
-		if output_samples and (c < BATCH_SIZE or (c >= 1280 and c < 1280 + BATCH_SIZE)):
+		if output_samples and (c < 128 or (c >= 1280 and c < 1280 + 128)):
 			if first_batch:
 				print("**For twos***")
 			else:
 				print("**For sevens**")
 				
-			distance = (xs.numpy() - adv_xs).squeeze()
-			inf_dist = lin.norm(distance, ord=np.Inf, axis=(1,2))
-			l1_dist = lin.norm(distance, ord=1, axis=(1,2))
-			l2_dist = lin.norm(distance, ord=2, axis=(1,2))
+			distance = (xs.numpy() - adv_xs).reshape(BATCH_SIZE, -1)
+			
+			inf_dist = lin.norm(distance, ord=np.Inf, axis=1)
+			l1_dist = lin.norm(distance, ord=1, axis=1)
+			l2_dist = lin.norm(distance, ord=2, axis=1)
 			
 			if report_file is not None:
 				f = open(report_file, "a+")
@@ -351,18 +352,19 @@ def main(_=None):
 	#from cleverhans_tutorials import check_installation
 	#check_installation(__file__)
 	
-	model_path = os.path.join(FLAGS.output_path, FLAGS.model)
 	'''
 	#Code for training and saving the CNN model that we're using for all the attacks
 	torch_model = train_model(data_dir=FLAGS.data_dir)
-	torch.save(torch_model, model_path)
+	torch.save(torch_model, FLAGS.model)
 	'''
 	#But now that we've saved it, we can just reload it every time:
-	torch_model = torch.load(model_path, map_location=torch.device('cuda'))
+	torch_model = torch.load(FLAGS.model, map_location=torch.device('cuda'))
 	
 	report_file = os.path.join(FLAGS.data_dir, FLAGS.report)
 	#import pdb; pdb.set_trace()
-	if FLAGS.attack == 'cw_l2':
+	if FLAGS.attack == 'fgsm':
+		param_set = FGSM_Params(eps=FLAGS.eps,ord=FLAGS.ord)
+	elif FLAGS.attack == 'cw_l2':
 		param_set = CW_L2_Params(confidence=FLAGS.confidence, max_iterations=FLAGS.max_iterations, learning_rate=FLAGS.learning_rate, 
 			binary_search_steps=FLAGS.binary_search_steps, initial_const=FLAGS.initial_const, batch_size=BATCH_SIZE)
 	elif FLAGS.attack == 'ead':
@@ -397,9 +399,9 @@ if __name__ == '__main__':
 	#Otherwise, this should be in the adv_images's parent directory
 	flags.DEFINE_string('output_path', '/home/squishymage/cnn_gp/cnn_attacks', "Directory of report file")
 	flags.DEFINE_string('report', 'cnn_cw_l2_arch0.txt', "The CNNs accuracy will be appended to this file.")
-	flags.DEFINE_string('model', 'cnn_7_vs_2.pt', "The trained CNN")
+	flags.DEFINE_string('model', '/home/squishymage/cnn_gp/trained_model/cnn_7_vs_2.pt', "The trained CNN")
 
-	flags.DEFINE_string('attack', 'cw_l2', 'Identifier for the attack to run')
+	flags.DEFINE_string('attack', 'pgd', 'Identifier for the attack to run')
 	flags.DEFINE_float('learning_rate', 5e-2, 'learning rate')
 	flags.DEFINE_float('initial_const', 1.0, 'Initial value for the constant that determines the tradeoff b/w distortion and attack success')
 	flags.DEFINE_float('confidence', 0, 'Confidence (Kappa)')
