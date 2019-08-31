@@ -301,6 +301,7 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 				
 			distance = (xs.numpy() - adv_xs).squeeze()
 			inf_dist = lin.norm(distance, ord=np.Inf, axis=(1,2))
+			l1_dist = lin.norm(distance, ord=1, axis=(1,2))
 			l2_dist = lin.norm(distance, ord=2, axis=(1,2))
 			
 			if report_file is not None:
@@ -310,10 +311,12 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 				else:
 					f.write("\n{} **For sevens**\n".format(attack_name))
 				f.write('L2 norm - ave: {}\t std: {}\t max: {} min: {}\n'.format(l2_dist.mean(), l2_dist.std(), l2_dist.max(), l2_dist.min()))
+				f.write('L1 norm - ave: {}\t std: {}\t max: {} min: {}\n'.format(l1_dist.mean(), l1_dist.std(), l1_dist.max(), l1_dist.min()))
 				f.write('LInf norm - ave: {}\t std: {}\t max: {} min: {}\n'.format(inf_dist.mean(), inf_dist.std(), inf_dist.max(), inf_dist.min()))
 				f.close()
 			
 			print("L2 norm - ave: {}\t std: {}\t max: {} min: {}".format(l2_dist.mean(), l2_dist.std(), l2_dist.max(), l2_dist.min()))
+			print('L1 norm - ave: {}\t std: {}\t max: {} min: {}'.format(l1_dist.mean(), l1_dist.std(), l1_dist.max(), l1_dist.min()))
 			print("LInf norm - ave: {}\t std: {}\t max: {} min: {}".format(inf_dist.mean(), inf_dist.std(), inf_dist.max(), inf_dist.min()))
 			for i in range(xs.shape[0]):
 			#Print the first and 8th batches of images i.e. a batch of 2s and a batch of 7s
