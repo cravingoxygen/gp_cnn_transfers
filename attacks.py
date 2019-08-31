@@ -25,7 +25,7 @@ from cleverhans.attacks import FastGradientMethod, CarliniWagnerL2, ProjectedGra
 #from tensorflow.nn import softmax_cross_entropy_with_logits_v2
 #from tensorflow.losses import softmax_cross_entropy
 
-def PGD_Params(eps=0.3, eps_iter=0.05, ord=np.Inf, nb_iter=10, rand_init=True, clip_grad=False):
+def PGD_Params(eps=0.3, eps_iter=0.05, ord=np.Inf, nb_iter=10, rand_init=True, clip_grad=True):
 	return dict(
 		eps=eps,
 		eps_iter=eps_iter,
@@ -108,7 +108,7 @@ def attack(attack_method, attack_params, K_inv_Y, kernel, X, Xt, Yt, output_path
         attack_obj = ElasticNetMethod(model, sess=sess, dtypestr='float64')
     elif (attack_method == 'pgd'):
         attack_obj = ProjectedGradientDescent(model, sess=sess, dtypestr='float64')
-
+        
     x = tf.placeholder(settings.float_type, shape=(None, Xt.shape[1]))
     adv_x_op = attack_obj.generate(x, **attack_params)
     preds_adv_op = model.get_logits(adv_x_op)
@@ -118,6 +118,7 @@ def attack(attack_method, attack_params, K_inv_Y, kernel, X, Xt, Yt, output_path
     for k in tqdm.trange(0, Yt.shape[0], batch_size):
         end = min(k + batch_size , Yt.shape[0])
         #feed_dict = {K_inv_Y_ph: K_inv_Y, X_ph: Xt[k:end, :], X2_ph: X}
+        import pdb; pdb.set_trace()
         feed_dict = { x: Xt[k:end, :]}
         yt = Yt[k:end, :]
         adv_x, preds_adv = sess.run((adv_x_op, preds_adv_op), feed_dict=feed_dict)
