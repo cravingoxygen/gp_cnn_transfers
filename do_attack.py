@@ -163,7 +163,7 @@ def main(_):
     #If it already exists, just load it.
     #We do classification by treating it as a regression problem i.e. the conjugate method
     #So all we need is the inverse of the training kernel
-    Kxx = initialize_kernel("Kxx", X, None, False, kern, kernels_dir)
+    #Kxx = initialize_kernel("Kxx", X, None, False, kern, kernels_dir)
     K_inv = initialize_Kxx_inverse(kernels_dir)
     #Center labels and make symmetric:
     #Don't center labels. Use one-hot vectors as probabilities
