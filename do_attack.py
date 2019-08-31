@@ -128,9 +128,36 @@ def main(_):
     else:
         print('Unsupported parameter struct specified')
         return
-    attack_name = FLAGS.adv_attack_name #.format(FLAGS.epsilon, FLAGS.norm_type)
+    attack_name = FLAGS.adv_attack_name
+    if FLAGS.generate_attack:
+        if FLAGS.attack == 'fgsm':
+            attack_params = attacks.FGSM_Params(eps=FLAGS.epsilon, ord=FLAGS.norm_type)
+            attack_name = 'GP_FGSM_eps={}_norm={}'.format(attack_params['eps'], attack_params['ord'])
+        elif FLAGS.attack == 'pgd':
+            attack_params = attacks.PGD_Params(eps=FLAGS.epsilon, eps_iter=FLAGS.eps_iter, ord=FLAGS.norm_type, nb_iter=FLAGS.nb_iter)
+            attack_name = 'GP_pgd_eps={}_eps_iter={}_nb_iter={}_ord={}'.format(attack_params['eps'],attack_params['eps_iter'], attack_params['nb_iter'], attack_params['ord'])
+        elif FLAGS.attack == 'cw_l2':
+            attack_params = attacks.CW_L2_Params(max_iterations=FLAGS.max_iterations, confidence=FLAGS.confidence, binary_search_steps=FLAGS.binary_search_steps, 
+                    learning_rate=FLAGS.learning_rate, initial_const=FLAGS.initial_const, batch_size=5)
+            attack_name = 'GP_cw_l2_conf={}_max_iter={}_init_c={}_lr={}'.format(attack_params['confidence'], attack_params['max_iterations'], attack_params['initial_const'], attack_params['learning_rate'])
+        elif FLAGS.attack == 'ead':
+            attack_params = attacks.EAD_Params(beta=FLAGS.beta, max_iterations=FLAGS.max_iterations, confidence=FLAGS.confidence, binary_search_steps=FLAGS.binary_search_steps, 
+                    learning_rate=FLAGS.learning_rate, initial_const=FLAGS.initial_const, batch_size=5)
+            attack_name = 'GP_ead_beta={}_conf={}_max_iter={}_init_c={}'.format(attack_params['beta'],attack_params['confidence'], attack_params['max_iterations'], attack_params['initial_const'])
+        elif FLAGS.attack == 'cleverhans_fgsm':
+            attack_name = 'GP_cleverhans_fgsm_eps-{}_norm={}'.format(FLAGS.epsilon, FLAGS.norm_type)
+        else:
+            print('ERROR - Unsupported attack specified')
+            return
+
     #Directory where the adv kernels and adv-specific graphs will be go
     adv_output_dir = os.path.join(FLAGS.adv_output, attack_name)
+    if not os.path.exists(adv_output_dir):
+        os.makedirs(adv_output_dir)
+    f = open(os.path.join(adv_output_dir, "params.txt"),"w+")
+    f.write( str(attack_params) )
+    f.close()
+    
     #Directory where the adv dataset is/will be
     if FLAGS.generate_attack:
         adv_data_dir = os.path.join(FLAGS.adv_data, attack_name)
@@ -188,15 +215,19 @@ def main(_):
         remove_kernels('a', adv_kernels_dir)
 
         if FLAGS.attack == 'fgsm':
-            Xa = attacks.attack('fgsm', attacks.FGSM_Params(eps=0.2, ord=np.Inf), K_inv_Y, kern, X, Xt, Yt,  output_path=adv_data_dir, adv_file_output=adv_data_file)
+            Xa = attacks.attack('fgsm', attack_params, K_inv_Y, kern, X, Xt, Yt,  output_path=adv_data_dir, adv_file_output=adv_data_file)
             #Xa = attacks.fgsm(K_inv_Y, kern, X, Xt, Yt, seed=FLAGS.seed, epsilon=FLAGS.epsilon, norm_type=FLAGS.norm_type, output_images=True, max_output=128, output_path=adv_data_dir, adv_file_output=adv_data_file)
         elif FLAGS.attack == 'fgsm_cleverhans':
             Xa = attacks.fgsm_cleverhans(K_inv_Y, kern, X, Xt, Yt, epsilon=FLAGS.epsilon, norm_type=FLAGS.norm_type, output_images=True, max_output=128,  output_path=adv_data_dir, adv_file_output=adv_data_file)
         elif FLAGS.attack == 'cw_l2':
             print('Carlini Wagner attack',FLAGS.max_iterations)
             #Xa = attacks.attack('fgsm', attacks.FGSM_Params(eps=0.5,ord=2), K_inv_Y, kern, X, Xt, Yt,  output_path=adv_data_dir, adv_file_output=adv_data_file)
+            Xa = attacks.attack('cw_l2', attack_params, K_inv_Y, kern, X, Xt, Yt,  output_path=adv_data_dir, adv_file_output=adv_data_file)
+        elif FLAGS.attack == 'ead':
+            print('Elastic-Net attack',FLAGS.max_iterations)
+            #Xa = attacks.attack('fgsm', attacks.FGSM_Params(eps=0.5,ord=2), K_inv_Y, kern, X, Xt, Yt,  output_path=adv_data_dir, adv_file_output=adv_data_file)
             
-            Xa = attacks.attack('cw_l2', attacks.CW_L2_Params(max_iterations=FLAGS.max_iterations, confidence=FLAGS.confidence, binary_search_steps=FLAGS.binary_search_steps), K_inv_Y, kern, X, Xt, Yt,  output_path=adv_data_dir, adv_file_output=adv_data_file)
+            Xa = attacks.attack('ead', attack_params, K_inv_Y, kern, X, Xt, Yt,  output_path=adv_data_dir, adv_file_output=adv_data_file)
         else:
             print("***Invalid attack specified***")
             return
@@ -215,16 +246,23 @@ if __name__ == '__main__':
     f.DEFINE_enum('param_constructor', 'EmpiricalPrior', ['EmpiricalPrior', 'SimpleMNISTParams', 'PaperParams'], 'The GP parameter struct to use')
     f.DEFINE_float('epsilon', 0.3, 'The FGSM perturbation size')
     f.DEFINE_float('norm_type', np.Inf, 'The norm to be used by FGSM')
-    f.DEFINE_float('confidence', 0.0, 'The confidence to be used by CW_l2')
-    f.DEFINE_integer('max_iterations', 50, 'The max_iterations to be used by CW_l2')
-    f.DEFINE_integer('binary_search_steps', 6, 'The max binary search steps to find c, to be used by CW_l2')
+
+    f.DEFINE_integer('nb_iter', 10, 'Number of iterations for PGD')
+    f.DEFINE_float('eps_iter', 0.05, 'Step perturbation')
+
+    f.DEFINE_float('confidence', 0.0, 'The confidence to be used by CW_l2 and EAD')
+    f.DEFINE_float('learning_rate', 5e-2, 'learning rate for C & W and EAD')
+    f.DEFINE_float('initial_const', 1.0, 'Initial value for the constant that determines the tradeoff b/w distortion and attack success (C&W and EAD)')
+    f.DEFINE_float('beta', 1e-2, 'Beta, tradeoff between L1 and L2 (EAD)')
+    f.DEFINE_integer('max_iterations', 50, 'The max_iterations to be used by CW_l2 and EAD')
+    f.DEFINE_integer('binary_search_steps', 6, 'The max binary search steps to find c, to be used by CW_l2 and EAD')
 
     f.DEFINE_string('data_path', '/scratch/etv21/conv_gp_data/MNIST_data/expA',
                     "Path to the compressed dataset")
     f.DEFINE_string('output_dir', '/scratch/etv21/conv_gp_data/expA1',
                     "Location where all generated files will be placed (graphs, kernels, etc)")
 
-    f.DEFINE_enum('attack', 'fgsm', ['fgsm', 'cleverhans_fgsm', 'cw_l2'], 'The attack strategy to use. Only specify if generating attack.')
+    f.DEFINE_enum('attack', 'fgsm', ['fgsm', 'cleverhans_fgsm', 'cw_l2', 'ead', 'pgd'], 'The attack strategy to use. Only specify if generating attack.')
 
     f.DEFINE_string('adv_attack_name', 'GP_FGSM_eps={}_norm_{}_nll_targeted',
                     "Name of attack. All outputs related to this attack will be put in the adv_output/adv_data directories, within a new subdirectory with this (adv_attack_name) name")
