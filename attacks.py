@@ -21,7 +21,7 @@ import h5py
 import scipy
 
 import cleverhans.model
-from cleverhans.attacks import FastGradientMethod, CarliniWagnerL2
+from cleverhans.attacks import FastGradientMethod, CarliniWagnerL2, ProjectedGradientDescent, ElasticNetMethod
 #from tensorflow.nn import softmax_cross_entropy_with_logits_v2
 #from tensorflow.losses import softmax_cross_entropy
 
@@ -75,7 +75,11 @@ def CW_L2_Params(confidence=0, learning_rate=5e-3, binary_search_steps=6, max_it
 
 def attack(attack_method, attack_params, K_inv_Y, kernel, X, Xt, Yt, output_path, adv_file_output, output_images=True, max_output=128):
     print(attack_params)
-    batch_size = 1
+    if 'batch_size' in attack_params:
+        batch_size = attack_params['batch_size']
+    else:
+        batch_size = 1
+
     #Create output directory if it doesn't exist
     if not os.path.exists(output_path):
         os.mkdir(output_path)
@@ -100,6 +104,10 @@ def attack(attack_method, attack_params, K_inv_Y, kernel, X, Xt, Yt, output_path
         attack_obj = FastGradientMethod(model, sess=sess, dtypestr='float64')
     elif (attack_method == 'cw_l2'):
         attack_obj = CarliniWagnerL2(model, sess=sess, dtypestr='float64')
+    elif (attack_method == 'ead'):
+        attack_obj = ElasticNetMethod(model, sess=sess, dtypestr='float64')
+    elif (attack_method == 'pgd'):
+        attack_obj = ProjectedGradientDescent(model, sess=sess, dtypestr='float64')
 
     x = tf.placeholder(settings.float_type, shape=(None, Xt.shape[1]))
     adv_x_op = attack_obj.generate(x, **attack_params)
