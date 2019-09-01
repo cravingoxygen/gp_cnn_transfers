@@ -16,6 +16,9 @@ from absl import flags
 import matplotlib.pyplot as plt
 from sklearn.utils.extmath import softmax
 
+def entropy(probs):
+    return  -(probs[:, 0] * np.log(probs[:,0])) -(probs[:, 1] * np.log(probs[:,1]))
+
 def make_symm(A, lower=False):
     i_lower = np.tril_indices(A.shape[-1], -1)
     if lower:
@@ -37,7 +40,7 @@ def print_error(K_xt_x, K_inv_y, Ytv, dit, key):
         Y_pred_n = np.ravel(Y_pred >= 0)
     else:
         Y_pred_n = np.argmax(Y_pred, 1)
-    t = sklearn.metrics.accuracy_score(
+        t = sklearn.metrics.accuracy_score(
         np.argmax(Ytv, 1), Y_pred_n)
     dit[key] = (1-t)*100
     print(dit)
@@ -47,10 +50,11 @@ def print_error(K_xt_x, K_inv_y, Ytv, dit, key):
 #Y_z = test outputs
 #K_inv = Inverted covariance matrix from training
 #K_inv_Y = K_inv * Y_train, sent in to avoid repeated calculation
-def summarize_error(K_zz, K_z_x, Y_z, K_inv, K_inv_Y, key, path, make_plots=True):
+def summarize_error(K_zz, K_z_x, Y_z, K_inv, K_inv_Y, key, path, make_plots=True, set_name=None):
     print("Calculating", key)
-
-    descrip = key
+    if set_name == None:
+        set_name = key
+    descrip = set_name
     Y_pred = K_z_x @ K_inv_Y
 
     #
@@ -60,17 +64,24 @@ def summarize_error(K_zz, K_z_x, Y_z, K_inv, K_inv_Y, key, path, make_plots=True
     else:
         Y_pred = Y_pred.squeeze()
         class_probs = softmax(Y_pred)
+        entropies = entropy(class_probs)
         #import pdb; pdb.set_trace()
         Y_pred_n = np.argmax(class_probs, 1)
     
     t = sklearn.metrics.accuracy_score(np.argmax(Y_z, 1), Y_pred_n)
-    print(key, 'error: ',(1-t)*100,'%')
-    f = open(os.path.join(path, "error.txt"),"w+")
-    f.write("{} error: {} %".format(key,(1-t)*100,'%'))
+    print(set_name, 'error: ',(1-t)*100,'%')
+    f = open(os.path.join(path, "error_report.txt"),"a+")
+    f.write("{} error: {} %".format(set_name,(1-t)*100,'%'))
     f.close()
     
 
     if make_plots:
+        plt.figure(figsize=(12, 9), dpi=100)
+        plt.hist(entropies, bins=100, density=True)
+        plt.savefig("{}/entropy_{}.png".format(path, descrip), format='png')
+        axes = plt.gca()
+        plt.close()
+
         variance = K_zz - np.diagonal((K_z_x @ K_inv @ K_z_x.T))
         variance_accuracy_plots(variance, np.argmax(Y_z, 1), Y_pred_n, path, descrip)
 
