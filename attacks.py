@@ -118,7 +118,7 @@ def attack(attack_method, attack_params, K_inv_Y, kernel, X, Xt, Yt, output_path
     for k in tqdm.trange(0, Yt.shape[0], batch_size):
         end = min(k + batch_size , Yt.shape[0])
         #feed_dict = {K_inv_Y_ph: K_inv_Y, X_ph: Xt[k:end, :], X2_ph: X}
-        import pdb; pdb.set_trace()
+        #import pdb; pdb.set_trace()
         feed_dict = { x: Xt[k:end, :]}
         yt = Yt[k:end, :]
         adv_x, preds_adv = sess.run((adv_x_op, preds_adv_op), feed_dict=feed_dict)
@@ -135,7 +135,7 @@ def attack(attack_method, attack_params, K_inv_Y, kernel, X, Xt, Yt, output_path
                 scipy.misc.toimage(adv_img, cmin=0, cmax=255).save(path.join(output_images_dir, 'gp_attack_{}_noisy.png'.format(batch_num*batch_size + c)))
         batch_num += 1
 
-    np.save(os.path.join(output_path, adv_file_output + '.npy'), adv_examples, allow_pickle=False)
+    np.save(os.path.join(output_path, adv_file_output), adv_examples, allow_pickle=False)
     
     return adv_examples
 
