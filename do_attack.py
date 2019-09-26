@@ -181,6 +181,10 @@ def main(_):
 
 	#Load all the data (train, test, val)
 	X, Y, Xv, Yv, Xt, Yt = dataset.mnist_sevens_vs_twos(FLAGS.data_path, noisy=True)
+	#unicorns for now, we're doing adversarial training, so we need attacks for the training set.
+	if True:
+		Xt = X
+		Yt = Y
 
 	#Parameters for the GP
 	params = param_constructor(FLAGS.seed)
@@ -251,6 +255,31 @@ if __name__ == '__main__':
 	f = flags
 	f.DEFINE_integer('seed', 20, 'The seed to use')
 	f.DEFINE_enum('param_constructor', 'EmpiricalPrior', ['EmpiricalPrior', 'SimpleMNISTParams', 'PaperParams'], 'The GP parameter struct to use')
+
+	f.DEFINE_bool('generate_attack', False,
+					"Whether the attack is generated, or whether an existing attack should be loaded")
+	f.DEFINE_bool('adv_only', True, 
+					"When this flag is true, the test and validation error won't be evaluated. Useful when generating a bunch of different attacks for the same GP")
+					
+	f.DEFINE_string('data_path', '/home/squishymage/cnn_gp/training_data',
+					"Path to the compressed dataset")
+	f.DEFINE_string('output_dir', '/home/squishymage/cnn_gp/trained_model',
+					"Location where generated files will be placed (graphs, kernels, etc)")
+
+	f.DEFINE_string('adv_attack_name', 'GP_FGSM_eps={}_norm_{}_nll_targeted',
+					"Name of attack. All outputs related to this attack will be put in the adv_output/adv_data directories, within a new subdirectory with this (adv_attack_name) name. Will be inferred if generating attack")
+	f.DEFINE_string('adv_output', '/home/squishymage/cnn_gp/gp_outputs',
+					"Directory where the adv kernels will be put. Usually a subdirectory of the output_dir")
+
+	f.DEFINE_string('adv_data', '/home/squishymage/cnn_gp/gp_attacks',
+					"Directory where the adv dataset is/will be")
+
+	f.DEFINE_string('adv_data_file', 'two_vs_seven_{}.npy',
+					"Filename of attack data. If the is being generated, the new data will be saved as this filename. Otherwise, the name of file to be loaded if the attack already exists. Final name will be <value>.format(attack_name)")
+
+
+	#Attack parameters:
+	f.DEFINE_enum('attack', 'fgsm', ['fgsm_ours', 'fgsm', 'cw_l2', 'ead', 'pgd'], 'The attack strategy to use. Only specify if generating attack.')
 	f.DEFINE_float('epsilon', 0.3, 'The FGSM perturbation size')
 	f.DEFINE_float('norm_type', np.Inf, 'The norm to be used by FGSM')
 
@@ -264,29 +293,6 @@ if __name__ == '__main__':
 	f.DEFINE_integer('max_iterations', 1, 'The max_iterations to be used by CW_l2 and EAD')
 	f.DEFINE_integer('binary_search_steps', 6, 'The max binary search steps to find c, to be used by CW_l2 and EAD')
 
-	f.DEFINE_string('data_path', '/home/squishymage/cnn_gp/training_data',
-					"Path to the compressed dataset")
-	f.DEFINE_string('output_dir', '/home/squishymage/cnn_gp/trained_model',
-					"Location where all generated files will be placed (graphs, kernels, etc)")
-
-	f.DEFINE_enum('attack', 'fgsm', ['fgsm_ours', 'fgsm', 'cw_l2', 'ead', 'pgd'], 'The attack strategy to use. Only specify if generating attack.')
-
-	f.DEFINE_string('adv_attack_name', 'GP_FGSM_eps={}_norm_{}_nll_targeted',
-					"Name of attack. All outputs related to this attack will be put in the adv_output/adv_data directories, within a new subdirectory with this (adv_attack_name) name. Will be inferred if generating attack")
-
-	f.DEFINE_string('adv_output', '/home/squishymage/cnn_gp/gp_outputs',
-					"Directory where the adv kernels will be put. Usually a subdirectory of the output_dir")
-
-	f.DEFINE_string('adv_data', '/home/squishymage/cnn_gp/gp_attacks',
-					"Directory where the adv dataset is/will be")
-
-	f.DEFINE_string('adv_data_file', 'two_vs_seven_{}.npy',
-					"Filename of attack data. If the is being generated, the new data will be saved as this filename. Otherwise, the name of file to be loaded if the attack already exists. Final name will be <value>.format(attack_name)")
-
-	f.DEFINE_bool('generate_attack', False,
-					"Whether the attack is generated, or whether an existing attack should be loaded")
-	f.DEFINE_bool('adv_only', True, 
-					"When this flag is true, the test and validation error won't be evaluated. Useful when generating a bunch of different attacks for the same GP")
 	absl_app.run(main)
 
 
