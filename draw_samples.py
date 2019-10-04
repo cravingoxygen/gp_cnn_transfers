@@ -17,8 +17,8 @@ else:
 	FLOAT_TYPE = np.float32
 	TF_FLOAT_TYPE=tf.float32
 
-def draw_patterns(xs, output_dir, start_2s=0, start_7s=1280, num_patterns=128):
-	output_image_path = os.path.join(output_dir, "images")
+def draw_patterns(xs, output_dir, start_2s=0, start_7s=1280, num_patterns=128, image_dir_name='images'):
+	output_image_path = os.path.join(output_dir, image_dir_name)
 	print('Images will be saved to: {}'.format(output_image_path))
 	if not os.path.exists(output_image_path):
 		os.makedirs(output_image_path)
@@ -27,17 +27,22 @@ def draw_patterns(xs, output_dir, start_2s=0, start_7s=1280, num_patterns=128):
 	single_adv_x_op = tf.placeholder(TF_FLOAT_TYPE, shape=(28,28))
 	encode_op = tf.image.encode_png(tf.reshape(tf.cast(single_adv_x_op*255, tf.uint8), (28, 28, 1)))
 	
-	for c in range(start_2s, start_2s+num_patterns):
+	start_2s = min(xs.shape[0], max(start_2s, 0))
+	end_2s = min(xs.shape[0],  start_2s+num_patterns)
+	for c in range(start_2s,end_2s):
 		enc_img = sess.run(encode_op, feed_dict={single_adv_x_op: xs[c]}) #Only one image in a batch
 		f = open(output_image_path + '/{}.png'.format(c), "wb+")
 		f.write(enc_img)
 		f.close()
 		
-	for c in range(start_7s, start_7s+num_patterns):
-		enc_img = sess.run(encode_op, feed_dict={single_adv_x_op: xs[c]}) #Only one image in a batch
-		f = open(output_image_path + '/{}.png'.format(c), "wb+")
-		f.write(enc_img)
-		f.close()
+	if start_7s is not None:
+		start_7s = min(xs.shape[0], max(start_7s, 0))
+		end_7s = min(xs.shape[0],  start_7s+num_patterns)
+		for c in range(start_7s,end_7s):
+			enc_img = sess.run(encode_op, feed_dict={single_adv_x_op: xs[c]}) #Only one image in a batch
+			f = open(output_image_path + '/{}.png'.format(c), "wb+")
+			f.write(enc_img)
+			f.close()
 	
 #two_vs_seven_adv_CNN_cw_l2_conf=0.0_max_iter=50_init_c=1.0_lr=0.05
 def infer_attack_name(file_name):
@@ -81,6 +86,13 @@ def main(_=None):
 
 
 if __name__ == '__main__':
+	'''
+	
+	'/home/squishymage/cnn_gp/training_data'
+	'/home/squishymage/cnn_gp/training_data'
+	'/home/squishymage/cnn_gp/training_data/report.txt'
+
+	'''
 	flags.DEFINE_string('parent_dir', '/home/squishymage/cnn_gp/training_data', 'The directory containing the .npy files')
 	flags.DEFINE_string('data_dir', '/home/squishymage/cnn_gp/training_data', 'Dir of clean MNIST datafiles')
 	flags.DEFINE_string('report_file', '/home/squishymage/cnn_gp/training_data/report.txt', 'File for writing dists')
