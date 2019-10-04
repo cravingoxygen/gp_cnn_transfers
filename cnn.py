@@ -422,54 +422,56 @@ def all_archs():
 def main(_=None):
 	#from cleverhans_tutorials import check_installation
 	#check_installation(__file__)
-	'''
-	#Code for training and saving the CNN model that we're using for all the attacks
-	torch_model = train_model(data_dir=FLAGS.data_dir)
-	torch.save(torch_model, FLAGS.model)
-	'''
-	#But now that we've saved it, we can just reload it every time:
-	torch_model = torch.load(FLAGS.model, map_location=torch.device('cuda'))
 	
-	report_file = os.path.join(FLAGS.data_dir, FLAGS.report)
-	#import pdb; pdb.set_trace()
-	if FLAGS.attack == 'fgsm':
-		param_set = FGSM_Params(eps=FLAGS.eps,ord=FLAGS.ord)
-	elif FLAGS.attack == 'cw_l2':
-		param_set = CW_L2_Params(confidence=FLAGS.confidence, max_iterations=FLAGS.max_iterations, learning_rate=FLAGS.learning_rate, 
-			binary_search_steps=FLAGS.binary_search_steps, initial_const=FLAGS.initial_const, batch_size=BATCH_SIZE)
-	elif FLAGS.attack == 'ead':
-		param_set = EAD_Params(beta=FLAGS.beta, confidence=FLAGS.confidence, max_iterations=FLAGS.max_iterations, learning_rate=FLAGS.learning_rate, 
-			binary_search_steps=FLAGS.binary_search_steps, initial_const=FLAGS.initial_const, batch_size=BATCH_SIZE)
-	elif FLAGS.attack == 'pgd':
-		param_set = PGD_Params(eps=FLAGS.eps, eps_iter=FLAGS.eps_iter, ord=FLAGS.ord, nb_iter=FLAGS.nb_iter)
-	else:
-		print("ERROR - Param set not implemented")
+	if FLAGS.action == 'train':
+		#Code for training and saving the CNN model that we're using for all the attacks
+		torch_model = train_model(data_dir=FLAGS.data_dir)
+		torch.save(torch_model, FLAGS.model)
 		return
 
+	#But now that we've saved it, we can just reload it every time:
+	torch_model = torch.load(FLAGS.model, map_location=torch.device('cuda'))
+	if FLAGS.action == 'generate':
+		
+		report_file = os.path.join(FLAGS.data_dir, FLAGS.report)
+		#import pdb; pdb.set_trace()
+		if FLAGS.attack == 'fgsm':
+			param_set = FGSM_Params(eps=FLAGS.eps,ord=FLAGS.ord)
+		elif FLAGS.attack == 'cw_l2':
+			param_set = CW_L2_Params(confidence=FLAGS.confidence, max_iterations=FLAGS.max_iterations, learning_rate=FLAGS.learning_rate, 
+				binary_search_steps=FLAGS.binary_search_steps, initial_const=FLAGS.initial_const, batch_size=BATCH_SIZE)
+		elif FLAGS.attack == 'ead':
+			param_set = EAD_Params(beta=FLAGS.beta, confidence=FLAGS.confidence, max_iterations=FLAGS.max_iterations, learning_rate=FLAGS.learning_rate, 
+				binary_search_steps=FLAGS.binary_search_steps, initial_const=FLAGS.initial_const, batch_size=BATCH_SIZE)
+		elif FLAGS.attack == 'pgd':
+			param_set = PGD_Params(eps=FLAGS.eps, eps_iter=FLAGS.eps_iter, ord=FLAGS.ord, nb_iter=FLAGS.nb_iter)
+		else:
+			print("ERROR - Param set not implemented")
+			return
 
-	generate_attack(FLAGS.attack, param_set, torch_model, FLAGS.data_dir, report_file=report_file, output_dir=FLAGS.data_dir)
+
+		generate_attack(FLAGS.attack, param_set, torch_model, FLAGS.data_dir, report_file=report_file, output_dir=FLAGS.data_dir)
+		return
 	
-	
-	'''
-	print(FLAGS.attack_name)
-	#adv_images_file = os.path.join(FLAGS.data_dir, '{}/two_vs_seven_{}.npy'.format(FLAGS.attack_name,FLAGS.attack_name))
-	adv_images_file = os.path.join(FLAGS.data_dir, 'two_vs_seven_{}.npy'.format(FLAGS.attack_name,FLAGS.attack_name))
-	labels_file = os.path.join(FLAGS.data_dir, FLAGS.labels)
-	report_file = os.path.join(FLAGS.output_path, FLAGS.report)
-	transfer_attack(torch_model, attack_name=FLAGS.attack_name, adv_images_file=adv_images_file, labels_file=labels_file, report_file=report_file)
-	'''
+	if FLAGS.action == 'attack':
+		print(FLAGS.attack_name)
+		adv_images_file = os.path.join(FLAGS.data_dir, '{}/two_vs_seven_adv_{}.npy'.format(FLAGS.attack_name,FLAGS.attack_name))
+		labels_file = os.path.join(FLAGS.data_dir, FLAGS.labels)
+		report_file = os.path.join(FLAGS.output_path, FLAGS.report)
+		transfer_attack(torch_model, attack_name=FLAGS.attack_name, adv_images_file=adv_images_file, labels_file=labels_file, report_file=report_file)
 	
 
 if __name__ == '__main__':
-	
-	#This directory should contain the MNIST zip files. Also, the attack data file should be in a subdirectory of this folder
-	flags.DEFINE_string('data_dir', '/home/squishymage/cnn_gp/training_data', 'The directory containing the MNIST data files')
+	flags.DEFINE_string('action', 'generate', 'Action to perform. Options are _train_ a new model, _generate_ a new attack for a given model and _attack_ to use an existing attack on the given model')
+	#This directory should contain the MNIST zip files.
+	flags.DEFINE_string('data_dir', '/scratch/etv21/conv_gp_data/MNIST_data/expA2', 'The directory containing the MNIST data files')
 	#Inside the data_dir folder #Do we need this?
 	flags.DEFINE_string('labels', 'two_vs_seven_labels.npy', 'File with labels for adversarial data. Should be inside the data_dir')
 	#This is used to infer the location of the attack images. Not necessary to specify when generating attacks, then the name is inferred.
 	flags.DEFINE_string('attack_name', 'cleverhans_FGSM_eps=0.1_norm_inf', 'Name of attack (eg. CNN_FGSM_eps=0.3_norm=inf). Used to infer location of adv data file.') 
 	#This should be in the data_dir if we're generating an attack.
 	#Otherwise, this should be in the adv_images's parent directory
+
 	flags.DEFINE_string('output_path', '/home/squishymage/cnn_gp/grad_vis', "Directory of report file")
 	flags.DEFINE_string('report', 'cnn_grad_vis.txt', "The CNNs accuracy will be appended to this file.")
 	flags.DEFINE_string('model', '/home/squishymage/cnn_gp/trained_model/cnn_7_vs_2.pt', "The trained CNN")

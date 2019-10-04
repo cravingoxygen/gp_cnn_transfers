@@ -1,0 +1,161 @@
+#!/bin/bash
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_cw_l2_conf=0.0_max_iter=20_init_c=10.0_lr=0.5"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_cw_l2_conf=2.0_max_iter=20_init_c=10.0_lr=0.5"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_cw_l2_conf=5.0_max_iter=20_init_c=10.0_lr=0.5"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_FGSM_eps=2.0_norm=2.0"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_FGSM_eps=20.0_norm=2.0"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_pgd_eps=0.05_eps_iter=0.005_nb_iter=10_ord=inf"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_pgd_eps=0.06_eps_iter=0.006_nb_iter=10_ord=inf"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_pgd_eps=0.07_eps_iter=0.007_nb_iter=10_ord=inf"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_pgd_eps=0.08_eps_iter=0.008_nb_iter=10_ord=inf"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_pgd_eps=0.09_eps_iter=0.009_nb_iter=10_ord=inf"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_pgd_eps=0.1_eps_iter=0.01_nb_iter=10_ord=inf"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_pgd_eps=0.2_eps_iter=0.02_nb_iter=10_ord=inf"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_pgd_eps=0.3_eps_iter=0.03_nb_iter=10_ord=inf"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_pgd_eps=0.4_eps_iter=0.04_nb_iter=10_ord=inf"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_pgd_eps=0.5_eps_iter=0.05_nb_iter=10_ord=inf"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_pgd_eps=1.0_eps_iter=0.1_nb_iter=10_ord=2.0"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_pgd_eps=2.0_eps_iter=0.2_nb_iter=10_ord=2.0"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_pgd_eps=5.0_eps_iter=0.5_nb_iter=10_ord=2.0"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_pgd_eps=10.0_eps_iter=1.0_nb_iter=10_ord=2.0"
+python3 do_attack.py -seed=20 -param_constructor=EmpiricalPrior \
+    -data_path="/scratch/etv21/conv_gp_data/MNIST_data/expA2" \
+    -output_dir="/scratch/etv21/conv_gp_data/expA1" \
+    -adv_output="/scratch/etv21/conv_gp_data/expA3/" \
+    -adv_data="/media/etv21/Elements/CNN_Attacks/attacks" \
+    -adv_data_file="two_vs_seven_adv_{}.npy" \
+    -generate_attack=False \
+    -adv_attack_name="CNN_pgd_eps=20.0_eps_iter=2.0_nb_iter=10_ord=2.0"

@@ -107,14 +107,18 @@ def initialize_Kxx_inverse(kernels_dir, safety_check=True):
 		np.save(K_inv_path, K_inv)
 	return K_inv
 
-def classify(key, Xz, Yz, z, X, K_inv, K_inv_Y, kern, kernels_dir, output_dir):
-
+def classify(key, Xz, Yz, z, X, K_inv, K_inv_Y, kern, kernels_dir, output_dir, set_name=None):
+	if set_name == None:
+		set_name = key
+	else:
+		output_dir = os.path.join(output_dir, set_name)
+    
 	Kxzx = initialize_kernel("Kx{}x".format(z), Xz, X, False, kern, kernels_dir)
 	Kz_diag = initialize_kernel("K{}_diag".format(z), Xz, None, True, kern, kernels_dir)
 
 	print('Shape of ',"Kx{}x".format(z),' is {}'.format(Kxzx.shape))
 	print('Shape of ',"K{}_diag".format(z),' is {}'.format(Kz_diag.shape))
-	results.summarize_error(Kz_diag, Kxzx, Yz, K_inv, K_inv_Y, key, output_dir)
+	results.summarize_error(Kz_diag, Kxzx, Yz, K_inv, K_inv_Y, key, output_dir, set_name=set_name)
 
 def main(_):
 	FLAGS = flags.FLAGS
@@ -155,13 +159,13 @@ def main(_):
 	adv_output_dir = os.path.join(FLAGS.adv_output, attack_name)
 	if not os.path.exists(adv_output_dir):
 		os.makedirs(adv_output_dir)
-	f = open(os.path.join(adv_output_dir, "params.txt"),"w+")
-	f.write( str(attack_params) )
-	f.close()
-	
+        
 	#Directory where the adv dataset is/will be
 	if FLAGS.generate_attack:
 		adv_data_dir = os.path.join(FLAGS.adv_data, attack_name)
+		f = open(os.path.join(adv_output_dir, "params.txt"),"w+")
+		f.write( str(attack_params) )
+		f.close()
 	else:
 		adv_data_dir = FLAGS.adv_data
 	#Filename if attack is being generated and will be saved (as this filename), or of the file to be loaded if the attack already exists
@@ -177,6 +181,10 @@ def main(_):
 
 	#Load all the data (train, test, val)
 	X, Y, Xv, Yv, Xt, Yt = dataset.mnist_sevens_vs_twos(FLAGS.data_path, noisy=True)
+	#unicorns for now, we're doing adversarial training, so we need attacks for the training set.
+	if True:
+		Xt = X
+		Yt = Y
 
 	#Parameters for the GP
 	params = param_constructor(FLAGS.seed)
@@ -218,6 +226,9 @@ def main(_):
 		if FLAGS.attack == 'fgsm':
 			#Xa = attacks.fgsm_cleverhans(K_inv_Y, kern, X, Xt, Yt, epsilon=FLAGS.epsilon, norm_type=FLAGS.norm_type, output_images=True, max_output=128,  output_path=adv_data_dir, adv_file_output=adv_data_file)
 			Xa = attacks.attack('fgsm',attack_params, K_inv_Y, kern, X, Xt, Yt,  output_path=adv_data_dir, adv_file_output=adv_data_file)
+		elif FLAGS.attack == 'pgd':
+			#Xa = attacks.fgsm_cleverhans(K_inv_Y, kern, X, Xt, Yt, epsilon=FLAGS.epsilon, norm_type=FLAGS.norm_type, output_images=True, max_output=128,  output_path=adv_data_dir, adv_file_output=adv_data_file)
+			Xa = attacks.attack('pgd',attack_params, K_inv_Y, kern, X, Xt, Yt,  output_path=adv_data_dir, adv_file_output=adv_data_file)
 		elif FLAGS.attack == 'fgsm_ours':
 			#Xa = attacks.attack('fgsm', attack_params, K_inv_Y, kern, X, Xt, Yt,  output_path=adv_data_dir, adv_file_output=adv_data_file)
 			Xa = attacks.fgsm(K_inv_Y, kern, X, Xt, Yt, seed=FLAGS.seed, epsilon=FLAGS.epsilon, norm_type=FLAGS.norm_type, output_images=True, max_output=128, output_path=adv_data_dir, adv_file_output=adv_data_file)
@@ -238,12 +249,37 @@ def main(_):
 			Xa = Xa.reshape(-1, 28*28)
 	
 	#Calculate adversarial kernels and error
-	classify('adv', Xa, Yt, 'a', X, K_inv, K_inv_Y, kern, adv_kernels_dir, adv_output_dir)
+	classify('adv', Xa, Yt, 'a', X, K_inv, K_inv_Y, kern, adv_kernels_dir, FLAGS.adv_output, set_name=attack_name)
 
 if __name__ == '__main__':
 	f = flags
 	f.DEFINE_integer('seed', 20, 'The seed to use')
 	f.DEFINE_enum('param_constructor', 'EmpiricalPrior', ['EmpiricalPrior', 'SimpleMNISTParams', 'PaperParams'], 'The GP parameter struct to use')
+
+	f.DEFINE_bool('generate_attack', False,
+					"Whether the attack is generated, or whether an existing attack should be loaded")
+	f.DEFINE_bool('adv_only', True, 
+					"When this flag is true, the test and validation error won't be evaluated. Useful when generating a bunch of different attacks for the same GP")
+					
+	f.DEFINE_string('data_path', '/home/squishymage/cnn_gp/training_data',
+					"Path to the compressed dataset")
+	f.DEFINE_string('output_dir', '/home/squishymage/cnn_gp/trained_model',
+					"Location where generated files will be placed (graphs, kernels, etc)")
+
+	f.DEFINE_string('adv_attack_name', 'GP_FGSM_eps={}_norm_{}_nll_targeted',
+					"Name of attack. All outputs related to this attack will be put in the adv_output/adv_data directories, within a new subdirectory with this (adv_attack_name) name. Will be inferred if generating attack")
+	f.DEFINE_string('adv_output', '/home/squishymage/cnn_gp/gp_outputs',
+					"Directory where the adv kernels will be put. Usually a subdirectory of the output_dir")
+
+	f.DEFINE_string('adv_data', '/home/squishymage/cnn_gp/gp_attacks',
+					"Directory where the adv dataset is/will be")
+
+	f.DEFINE_string('adv_data_file', 'two_vs_seven_{}.npy',
+					"Filename of attack data. If the is being generated, the new data will be saved as this filename. Otherwise, the name of file to be loaded if the attack already exists. Final name will be <value>.format(attack_name)")
+
+
+	#Attack parameters:
+	f.DEFINE_enum('attack', 'fgsm', ['fgsm_ours', 'fgsm', 'cw_l2', 'ead', 'pgd'], 'The attack strategy to use. Only specify if generating attack.')
 	f.DEFINE_float('epsilon', 0.3, 'The FGSM perturbation size')
 	f.DEFINE_float('norm_type', np.Inf, 'The norm to be used by FGSM')
 
@@ -257,29 +293,6 @@ if __name__ == '__main__':
 	f.DEFINE_integer('max_iterations', 1, 'The max_iterations to be used by CW_l2 and EAD')
 	f.DEFINE_integer('binary_search_steps', 6, 'The max binary search steps to find c, to be used by CW_l2 and EAD')
 
-	f.DEFINE_string('data_path', '/home/squishymage/cnn_gp/training_data',
-					"Path to the compressed dataset")
-	f.DEFINE_string('output_dir', '/home/squishymage/cnn_gp/trained_model',
-					"Location where all generated files will be placed (graphs, kernels, etc)")
-
-	f.DEFINE_enum('attack', 'fgsm', ['fgsm_ours', 'fgsm', 'cw_l2', 'ead', 'pgd'], 'The attack strategy to use. Only specify if generating attack.')
-
-	f.DEFINE_string('adv_attack_name', 'GP_FGSM_eps={}_norm_{}_nll_targeted',
-					"Name of attack. All outputs related to this attack will be put in the adv_output/adv_data directories, within a new subdirectory with this (adv_attack_name) name. Will be inferred if generating attack")
-
-	f.DEFINE_string('adv_output', '/home/squishymage/cnn_gp/gp_outputs',
-					"Directory where the adv kernels will be put. Usually a subdirectory of the output_dir")
-
-	f.DEFINE_string('adv_data', '/home/squishymage/cnn_gp/gp_attacks',
-					"Directory where the adv dataset is/will be")
-
-	f.DEFINE_string('adv_data_file', 'two_vs_seven_{}.npy',
-					"Filename of attack data. If the is being generated, the new data will be saved as this filename. Otherwise, the name of file to be loaded if the attack already exists. Final name will be <value>.format(attack_name)")
-
-	f.DEFINE_bool('generate_attack', True,
-					"Whether the attack is generated, or whether an existing attack should be loaded")
-	f.DEFINE_bool('adv_only', True, 
-					"When this flag is true, the test and validation error won't be evaluated. Useful when generating a bunch of different attacks for the same GP")
 	absl_app.run(main)
 
 
