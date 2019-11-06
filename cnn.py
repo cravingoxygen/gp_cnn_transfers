@@ -23,11 +23,11 @@ from torch.autograd import Variable
 from torchvision import datasets, transforms
 import os
 
-from cleverhans.attacks import FastGradientMethod, CarliniWagnerL2, ProjectedGradientDescent, ElasticNetMethod
+from cleverhans.attacks import FastGradientMethod, CarliniWagnerL2, ProjectedGradientDescent, ElasticNetMethod, SPSA
 from cleverhans.model import CallableModelWrapper
 from cleverhans.utils_pytorch import convert_pytorch_model_to_tf
 
-from attacks import CW_L2_Params, EAD_Params, PGD_Params, FGSM_Params
+from attacks import CW_L2_Params, EAD_Params, PGD_Params, FGSM_Params, SPSA_Params
 
 import matplotlib.pyplot as plt
 from PIL import Image 
@@ -232,10 +232,12 @@ def train_model(data_dir, nb_epochs=NB_EPOCHS, batch_size=BATCH_SIZE, train_end=
 	
 	return torch_model
 
-def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='', output_samples=True, report_file=None):
+def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='', output_samples=True, report_file=None, batch_size=BATCH_SIZE):
 	time_start = time.time()
 	test_dataset = mnist_sevens_vs_twos(data_dir, noisy=True)[1]
-	test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=BATCH_SIZE)
+	if attack == 'spsa':
+		batch_size = 1
+	test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size)
 	
 	# Convert pytorch model to a tf_model and wrap it in cleverhans
 	tf_model_fn = convert_pytorch_model_to_tf(torch_model)
@@ -243,8 +245,8 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 	
 	# We use tf for evaluation on adversarial data
 	sess = tf.Session()
-	x_op = tf.placeholder(TF_FLOAT_TYPE, shape=(None, 1, 28, 28,))
-
+	x_ph = tf.placeholder(TF_FLOAT_TYPE, shape=(None, 1, 28, 28,))
+	y_target_ph = tf.placeholder(TF_FLOAT_TYPE, shape=(None))
 	if attack == 'fgsm':
 		attack_op = FastGradientMethod(cleverhans_model, sess=sess, dtypestr=DTYPE_STR)
 		attack_name = 'CNN_FGSM_eps={}_norm={}'.format(attack_params['eps'], attack_params['ord'])
@@ -257,6 +259,9 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 	elif attack == 'ead':
 		attack_op = ElasticNetMethod(cleverhans_model, sess=sess, dtypestr=DTYPE_STR)
 		attack_name = 'CNN_ead_beta={}_conf={}_max_iter={}_init_c={}'.format(attack_params['beta'],attack_params['confidence'], attack_params['max_iterations'], attack_params['initial_const'])
+	elif attack=='spsa':
+		attack_op = SPSA(cleverhans_model, sess=sess, dtypestr=DTYPE_STR)
+		attack_name = 'CNN_spsa_eps={}_nb_iter={}_spsa_iters={}_learning_rate={}_delta={}'.format(attack_params['eps'],attack_params['nb_iter'],attack_params['spsa_iters'],attack_params['learning_rate'],attack_params['delta'])
 	else:
 		print('ERROR - Unsupported attack specified')
 		return
@@ -269,7 +274,7 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 	f.write( str(attack_params) )
 	f.close()
 
-	adv_x_op = attack_op.generate(x_op, **attack_params)
+	adv_x_op = attack_op.generate(x_ph, **attack_params, y_target=y_target_ph)
 	adv_preds_op = tf_model_fn(adv_x_op)
 	
 	single_adv_x_op = tf.placeholder(TF_FLOAT_TYPE, shape=(1,28,28))
@@ -288,37 +293,40 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 			os.makedirs(output_image_path)
 	
 	for xs, ys in test_loader:
-		adv_xs, adv_preds = sess.run((adv_x_op,adv_preds_op), feed_dict={x_op: xs})
+		#Target is opposite class
+		y_targets = 1 + (ys*-1)
+		adv_xs, adv_preds = sess.run((adv_x_op,adv_preds_op), feed_dict={x_ph: xs, y_target_ph: y_targets})
 		all_adv_preds = np.append(all_adv_preds, adv_preds)
 		correct += (np.argmax(adv_preds, axis=1) == ys.cpu().numpy()).sum()
 		total += len(xs)
 		
 		if output_samples and (c < 128 or (c >= 1280 and c < 1280 + 128)):
-			if first_batch:
-				print("**For twos***")
-			else:
-				print("**For sevens**")
-				
-			distance = (xs.numpy() - adv_xs).reshape(BATCH_SIZE, -1)
-			
-			inf_dist = lin.norm(distance, ord=np.Inf, axis=1)
-			l1_dist = lin.norm(distance, ord=1, axis=1)
-			l2_dist = lin.norm(distance, ord=2, axis=1)
-			
-			if report_file is not None:
-				f = open(report_file, "a+")
+			if BATCH_SIZE > 1:
 				if first_batch:
-					f.write("\n{} **For twos**\n".format(attack_name))
+					print("**For twos***")
 				else:
-					f.write("\n{} **For sevens**\n".format(attack_name))
-				f.write('L2 norm - ave: {}\t std: {}\t max: {} min: {}\n'.format(l2_dist.mean(), l2_dist.std(), l2_dist.max(), l2_dist.min()))
-				f.write('L1 norm - ave: {}\t std: {}\t max: {} min: {}\n'.format(l1_dist.mean(), l1_dist.std(), l1_dist.max(), l1_dist.min()))
-				f.write('LInf norm - ave: {}\t std: {}\t max: {} min: {}\n'.format(inf_dist.mean(), inf_dist.std(), inf_dist.max(), inf_dist.min()))
-				f.close()
-			
-			print("L2 norm - ave: {}\t std: {}\t max: {} min: {}".format(l2_dist.mean(), l2_dist.std(), l2_dist.max(), l2_dist.min()))
-			print('L1 norm - ave: {}\t std: {}\t max: {} min: {}'.format(l1_dist.mean(), l1_dist.std(), l1_dist.max(), l1_dist.min()))
-			print("LInf norm - ave: {}\t std: {}\t max: {} min: {}".format(inf_dist.mean(), inf_dist.std(), inf_dist.max(), inf_dist.min()))
+					print("**For sevens**")
+					
+				distance = (xs.numpy() - adv_xs).reshape(BATCH_SIZE, -1)
+				
+				inf_dist = lin.norm(distance, ord=np.Inf, axis=1)
+				l1_dist = lin.norm(distance, ord=1, axis=1)
+				l2_dist = lin.norm(distance, ord=2, axis=1)
+				
+				if report_file is not None:
+					f = open(report_file, "a+")
+					if first_batch:
+						f.write("\n{} **For twos**\n".format(attack_name))
+					else:
+						f.write("\n{} **For sevens**\n".format(attack_name))
+					f.write('L2 norm - ave: {}\t std: {}\t max: {} min: {}\n'.format(l2_dist.mean(), l2_dist.std(), l2_dist.max(), l2_dist.min()))
+					f.write('L1 norm - ave: {}\t std: {}\t max: {} min: {}\n'.format(l1_dist.mean(), l1_dist.std(), l1_dist.max(), l1_dist.min()))
+					f.write('LInf norm - ave: {}\t std: {}\t max: {} min: {}\n'.format(inf_dist.mean(), inf_dist.std(), inf_dist.max(), inf_dist.min()))
+					f.close()
+				
+				print("L2 norm - ave: {}\t std: {}\t max: {} min: {}".format(l2_dist.mean(), l2_dist.std(), l2_dist.max(), l2_dist.min()))
+				print('L1 norm - ave: {}\t std: {}\t max: {} min: {}'.format(l1_dist.mean(), l1_dist.std(), l1_dist.max(), l1_dist.min()))
+				print("LInf norm - ave: {}\t std: {}\t max: {} min: {}".format(inf_dist.mean(), inf_dist.std(), inf_dist.max(), inf_dist.min()))
 			for i in range(xs.shape[0]):
 			#Print the first and 8th batches of images i.e. a batch of 2s and a batch of 7s
 				enc_img = sess.run(encode_op, feed_dict={single_adv_x_op: adv_xs[i]}) #Only one image in a batch
@@ -343,7 +351,7 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 	if report_file is not None:
 		f = open(report_file, "a+")
 		f.write('{}	error: {}%\n'.format(attack_name, (1 - acc)*100))
-		f.write('{}	time: {}%\n'.format(attack_name, time_required))
+		f.write('{}	time: {}s\n'.format(attack_name, time_required))
 		f.close()
 	
 	np.save(output_dir + '/two_vs_seven_adv_{}'.format(attack_name), adv_images, allow_pickle=False)
@@ -374,6 +382,8 @@ def main(_=None):
 				binary_search_steps=FLAGS.binary_search_steps, initial_const=FLAGS.initial_const, batch_size=BATCH_SIZE)
 		elif FLAGS.attack == 'pgd':
 			param_set = PGD_Params(eps=FLAGS.eps, eps_iter=FLAGS.eps_iter, ord=FLAGS.ord, nb_iter=FLAGS.nb_iter)
+		elif FLAGS.attack == 'spsa':
+			param_set = SPSA_Params(eps=FLAGS.eps, nb_iter=FLAGS.nb_iter, spsa_iters=FLAGS.spsa_iters, learning_rate=FLAGS.learning_rate, delta=FLAGS.delta)
 		else:
 			print("ERROR - Param set not implemented")
 			return
@@ -393,27 +403,30 @@ def main(_=None):
 if __name__ == '__main__':
 	flags.DEFINE_string('action', 'generate', 'Action to perform. Options are _train_ a new model, _generate_ a new attack for a given model and _attack_ to use an existing attack on the given model')
 	#This directory should contain the MNIST zip files.
-	flags.DEFINE_string('data_dir', '/scratch/etv21/conv_gp_data/MNIST_data/expA2', 'The directory containing the MNIST data files')
+	flags.DEFINE_string('data_dir', '/media/etv21/Elements/CNN_Attacks/attacks', 'The directory containing the MNIST data files')
 	#Inside the data_dir folder #Do we need this?
 	flags.DEFINE_string('labels', 'two_vs_seven_labels.npy', 'File with labels for adversarial data. Should be inside the data_dir')
 	#This is used to infer the location of the attack images. Not necessary to specify when generating attacks, then the name is inferred.
 	flags.DEFINE_string('attack_name', 'cleverhans_FGSM_eps=0.1_norm_inf', 'Name of attack (eg. CNN_FGSM_eps=0.3_norm=inf). Used to infer location of adv data file.') 
 	#This should be in the data_dir if we're generating an attack.
 	#Otherwise, this should be in the adv_images's parent directory
-	flags.DEFINE_string('output_path', '/home/squishymage/cnn_gp/cnn_attacks', "Directory of report file")
+	flags.DEFINE_string('output_path', '/media/etv21/Elements/CNN_Attacks/attacks', "Directory of report file")
 	#Relative to data directory if generating, relative to the output directory if attacking. We really need to refactor this.
-	flags.DEFINE_string('report', 'cnn_cw_l2_arch0.txt', "The CNNs accuracy will be appended to this file.")
-	flags.DEFINE_string('model', '/home/squishymage/cnn_gp/trained_model/cnn_7_vs_2.pt', "The trained CNN")
+	flags.DEFINE_string('report', 'cnn_spsa_arch0.txt', "The CNNs accuracy will be appended to this file.")
+	flags.DEFINE_string('model', '/scratch/etv21/conv_gp_data/expA1/cnn_7_vs_2.pt', "The trained CNN")
 
-	flags.DEFINE_string('attack', 'pgd', 'Identifier for the attack to run')
-	flags.DEFINE_float('learning_rate', 5e-2, 'learning rate')
+	flags.DEFINE_string('attack', 'spsa', 'Identifier for the attack to run')
 	flags.DEFINE_float('initial_const', 1.0, 'Initial value for the constant that determines the tradeoff b/w distortion and attack success')
 	flags.DEFINE_float('confidence', 0, 'Confidence (Kappa)')
 	flags.DEFINE_float('beta', 1e-2, 'Beta, tradeoff between L1 and L2 (EAD)')
 	flags.DEFINE_integer('max_iterations', 1, 'Max iterations')
 	flags.DEFINE_integer('binary_search_steps', 6, 'Max binary search steps for c')
 
-	flags.DEFINE_integer('nb_iter', 10, 'Number of iterations for PGD')
+	flags.DEFINE_float('learning_rate', 0.01, 'learning rate')
+	flags.DEFINE_integer('spsa_iters', 1, 'Number of SPSA iterations')
+	flags.DEFINE_float('delta', 0.01, 'SPSA delta (step size for gradient approx)')
+
+	flags.DEFINE_integer('nb_iter', 10, 'Number of iterations for PGD/optimization iters for spsa')
 	flags.DEFINE_float('eps', 0.3, 'Max perturbation')
 	flags.DEFINE_float('eps_iter', 0.05, 'Step perturbation')
 	flags.DEFINE_float('ord', np.Inf, 'Order of norm')
