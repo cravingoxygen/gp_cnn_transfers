@@ -45,6 +45,19 @@ def print_error(K_xt_x, K_inv_y, Ytv, dit, key):
     dit[key] = (1-t)*100
     print(dit)
 
+def predict_probs(K_z_x, K_inv_Y):
+
+    Y_pred = K_z_x @ K_inv_Y
+
+    #
+    if len(Y_pred.shape) == 1 or Y_pred.shape[1] == 1:
+        print("**I'm not sure why we're in this case**")
+        Y_pred_n = np.ravel(Y_pred >= 0)
+        return
+    Y_pred = Y_pred.squeeze()
+    class_probs = softmax(Y_pred)
+    return class_probs
+
 #K_zz = The diagonal of the test inputs
 #K_z_x = Symmetric covariance between test inputs and training inputs
 #Y_z = test outputs
@@ -55,19 +68,12 @@ def summarize_error(K_zz, K_z_x, Y_z, K_inv, K_inv_Y, key, path, make_plots=True
     if set_name == None:
         set_name = key
     descrip = set_name
-    Y_pred = K_z_x @ K_inv_Y
 
-    #
-    if len(Y_pred.shape) == 1 or Y_pred.shape[1] == 1:
-        print("**I'm not sure why we're in this case**")
-        Y_pred_n = np.ravel(Y_pred >= 0)
-    else:
-        Y_pred = Y_pred.squeeze()
-        class_probs = softmax(Y_pred)
-        entropies = entropy(class_probs)
-        #import pdb; pdb.set_trace()
-        Y_pred_n = np.argmax(class_probs, 1)
+    class_probs = predict_probs(K_z_x, K_inv_Y)
+    entropies = entropy(class_probs)
+    Y_pred_n = np.argmax(class_probs, 1)
     
+
     t = sklearn.metrics.accuracy_score(np.argmax(Y_z, 1), Y_pred_n)
     print(set_name, 'error: ',(1-t)*100,'%')
     f = open(os.path.join(path, "error_report.txt"),"a+")
