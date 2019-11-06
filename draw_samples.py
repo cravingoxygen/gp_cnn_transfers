@@ -1,4 +1,4 @@
-
+import pandas as pd
 from tensorflow.python.platform import flags
 import os
 import numpy as np
@@ -16,6 +16,7 @@ if DTYPE_STR == 'float64':
 else:
 	FLOAT_TYPE = np.float32
 	TF_FLOAT_TYPE=tf.float32
+
 
 def draw_patterns(xs, output_dir, start_2s=0, start_7s=1280, num_patterns=128):
 	output_image_path = os.path.join(output_dir, "images")
@@ -63,6 +64,7 @@ def calc_dists(test_images, xs, attack_name, report_file):
 		f.close()
 
 def main(_=None):
+	#Draw sample patterns of all the datasets in a directory
 	from tensorflow.examples.tutorials.mnist import input_data
 	ds = input_data.read_data_sets(FLAGS.data_dir, one_hot=True)
 	test_images, test_labels = extract_images_and_labels(2, 7, ds.test.images, ds.test.labels)
@@ -82,7 +84,7 @@ def main(_=None):
 
 if __name__ == '__main__':
 	flags.DEFINE_string('parent_dir', '/home/squishymage/cnn_gp/training_data', 'The directory containing the .npy files')
-	flags.DEFINE_string('data_dir', '/home/squishymage/cnn_gp/training_data', 'Dir of clean MNIST datafiles')
+	flags.DEFINE_string('data_dir', '/home/squishymage/cnn_gp/training_data', 'Dir of clean MNIST datafiles') 
 	flags.DEFINE_string('report_file', '/home/squishymage/cnn_gp/training_data/report.txt', 'File for writing dists')
 	#flags.DEFINE_boolean'check_subdirs', False, 'File with labels for adversarial data. Should be inside the data_dir')
 
