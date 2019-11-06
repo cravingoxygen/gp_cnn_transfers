@@ -21,7 +21,7 @@ import h5py
 import scipy
 
 import cleverhans.model
-from cleverhans.attacks import FastGradientMethod, CarliniWagnerL2, ProjectedGradientDescent, ElasticNetMethod
+from cleverhans.attacks import FastGradientMethod, CarliniWagnerL2, ProjectedGradientDescent, ElasticNetMethod,SPSA
 #from tensorflow.nn import softmax_cross_entropy_with_logits_v2
 #from tensorflow.losses import softmax_cross_entropy
 
@@ -73,6 +73,81 @@ def CW_L2_Params(confidence=0, learning_rate=5e-3, binary_search_steps=6, max_it
             clip_max=np.float64(1.0),
     )
 
+def SPSA_Params(eps, nb_iter, spsa_iters,learning_rate,delta,spsa_samples=128):
+    return dict(
+            eps=eps,
+            nb_iter=nb_iter,
+            spsa_iters=spsa_iters,
+            delta=delta,
+            spsa_samples=spsa_samples,
+            learning_rate=learning_rate,
+            batch_size=1,
+            clip_min=np.float64(0.0),
+            clip_max=np.float64(1.0),
+    )
+
+def rand_attack(attack_params, K_inv_Y, kernel, X, Xt, Yt, output_path, adv_file_output, output_images=True, max_output=128):
+    if 'batch_size' in attack_params:
+        batch_size = attack_params['batch_size']
+    else:
+        batch_size = 1
+
+    #Create output directory if it doesn't exist
+    if not os.path.exists(output_path):
+        os.mkdir(output_path)
+    output_images_dir = os.path.join(output_path, '{}_images'.format(adv_file_output))
+    if output_images and not os.path.exists(output_images_dir):
+        os.mkdir(output_images_dir)
+    sess = gpflow.get_default_session()
+
+    K_inv_Y_ph = tf.constant(K_inv_Y)
+    X2_ph = tf.constant(X)
+    #K_inv_Y_ph = tf.placeholder(settings.float_type, K_inv_Y.shape, 'K_inv_Y')
+    #X2_ph = tf.placeholder(settings.float_type, X.shape, 'X_train')
+    #Callable that returns logits
+    def predict_callable(xt):
+        Kxtx_op = kernel.K(xt, X2_ph)
+        predict_op = tf.matmul(Kxtx_op, K_inv_Y_ph)
+        return predict_op
+    #Convert callable to model
+    model = cleverhans.model.CallableModelWrapper(predict_callable, 'logits')
+
+    #Define attack part of graph
+    x = tf.placeholder(settings.float_type, shape=(None, Xt.shape[1]))
+    #import pdb; pdb.set_trace()
+    adv_x_op = x + tf.random.normal(tf.shape(x), mean=0.0, stddev=attack_params['eps'], dtype=tf.float64)
+    preds_adv_op = model.get_logits(adv_x_op)
+    
+    adv_examples = None
+    batch_num = 0
+    for k in tqdm.trange(0, Yt.shape[0], batch_size):
+        end = min(k + batch_size , Yt.shape[0])
+        feed_dict = { x: Xt[k:end, :]}
+
+        if 'y_target' in attack_params:
+            yt = Yt[k:end, :]
+            y_target = 1.0 - yt
+            feed_dict['y_target_ph'] = y_target
+        adv_x, preds_adv = sess.run((adv_x_op, preds_adv_op), feed_dict=feed_dict)
+        #print(preds_adv)
+        
+        if adv_examples is None:
+            adv_examples = np.array(adv_x.reshape(batch_size, 28*28))
+        else:
+            adv_examples = np.append(adv_examples, adv_x.reshape(batch_size, 28*28), 0)
+
+        if output_images and (max_output == None or max_output > batch_num * batch_size or (batch_num*batch_size >= 1280 and batch_num*batch_size < 1280 + max_output)):
+            for c in range(0, batch_size):
+                adv_img = adv_x[c]*255
+                adv_img = (adv_img.astype(int)).reshape(28,28)
+                scipy.misc.toimage(adv_img, cmin=0, cmax=255).save(path.join(output_images_dir, 'gp_attack_{}_noisy.png'.format(batch_num*batch_size + c)))
+        batch_num += 1
+
+    np.save(os.path.join(output_path, adv_file_output), adv_examples, allow_pickle=False)
+    
+    return adv_examples
+
+
 def attack(attack_method, attack_params, K_inv_Y, kernel, X, Xt, Yt, output_path, adv_file_output, output_images=True, max_output=128):
     print(attack_params)
     if 'batch_size' in attack_params:
@@ -108,6 +183,10 @@ def attack(attack_method, attack_params, K_inv_Y, kernel, X, Xt, Yt, output_path
         attack_obj = ElasticNetMethod(model, sess=sess, dtypestr='float64')
     elif (attack_method == 'pgd'):
         attack_obj = ProjectedGradientDescent(model, sess=sess, dtypestr='float64')
+    elif (attack_method == 'spsa'):
+        attack_obj = SPSA(model, sess=sess, dtypestr='float64')
+        y_target_ph = tf.placeholder(settings.float_type, shape=(None))
+        attack_params['y_target'] = y_target_ph
         
     x = tf.placeholder(settings.float_type, shape=(None, Xt.shape[1]))
     adv_x_op = attack_obj.generate(x, **attack_params)
@@ -120,7 +199,11 @@ def attack(attack_method, attack_params, K_inv_Y, kernel, X, Xt, Yt, output_path
         #feed_dict = {K_inv_Y_ph: K_inv_Y, X_ph: Xt[k:end, :], X2_ph: X}
         #import pdb; pdb.set_trace()
         feed_dict = { x: Xt[k:end, :]}
-        yt = Yt[k:end, :]
+
+        if 'y_target' in attack_params:
+            yt = Yt[k:end, :]
+            y_target = 1.0 - yt
+            feed_dict['y_target_ph'] = y_target
         adv_x, preds_adv = sess.run((adv_x_op, preds_adv_op), feed_dict=feed_dict)
         
         if adv_examples is None:

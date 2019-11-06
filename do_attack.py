@@ -15,20 +15,6 @@ import inference as results
 from absl import app as absl_app
 from absl import flags
 
-#From Adria's paper
-def SimpleMNISTParams(seed):
-	return dict(
-			seed=seed,
-			var_weight=[0.642928 for k in range (0,3)], #np.random.rand() * 8 + 0.5, #Don't really know what to choose for weights and biases. Same as init for the conv? 0.0004682
-			var_bias=[3.761496 for k in range(0,3)], #np.random.rand() * 8 + 0.2, 0.002308
-			n_layers=2,
-			filter_sizes=5,
-			strides=1,
-			padding="SAME", 
-			nlin="ExReLU",  
-			skip_freq=-1,
-	)
-
 def EmpiricalPrior(seed):
 	return dict(
 			seed=seed,
@@ -87,6 +73,7 @@ def initialize_kernel(name, X1, X2, diag, kern, kernels_dir):
 		np.save(kernel_file, Kx1x2, allow_pickle=False)
 		return Kx1x2
 
+#Makes more sense to pass Kxx in here, if we have it.
 def initialize_Kxx_inverse(kernels_dir, safety_check=True):
 	#Get K_inv_Y
 	K_inv_path = os.path.join(kernels_dir, "K_inv.npy")
@@ -151,6 +138,12 @@ def main(_):
 			attack_params = attacks.EAD_Params(beta=FLAGS.beta, max_iterations=FLAGS.max_iterations, confidence=FLAGS.confidence, binary_search_steps=FLAGS.binary_search_steps, 
 					learning_rate=FLAGS.learning_rate, initial_const=FLAGS.initial_const, batch_size=5)
 			attack_name = 'GP_ead_beta={}_conf={}_max_iter={}_init_c={}'.format(attack_params['beta'],attack_params['confidence'], attack_params['max_iterations'], attack_params['initial_const'])
+		elif FLAGS.attack == 'spsa':
+			attack_params = attacks.SPSA_Params(FLAGS.epsilon, FLAGS.nb_iter, FLAGS.spsa_iters, FLAGS.learning_rate, FLAGS.delta, spsa_samples=FLAGS.spsa_samples)
+			attack_name = 'GP_spsa_eps={}_nb_iter={}_spsa_iters={}_spsa_samples={}_learning_rate={}_delta={}'.format(attack_params['eps'],attack_params['nb_iter'],attack_params['spsa_iters'],attack_params['spsa_samples'],attack_params['learning_rate'],attack_params['delta'])
+		elif FLAGS.attack == 'rand':
+			attack_params = attacks.FGSM_Params(eps=FLAGS.epsilon, ord=FLAGS.norm_type)
+			attack_name = 'GP_rand_eps={}_norm={}'.format(FLAGS.epsilon, FLAGS.norm_type)
 		else:
 			print('ERROR - Unsupported attack specified')
 			return
@@ -182,9 +175,9 @@ def main(_):
 	#Load all the data (train, test, val)
 	X, Y, Xv, Yv, Xt, Yt = dataset.mnist_sevens_vs_twos(FLAGS.data_path, noisy=True)
 	#unicorns for now, we're doing adversarial training, so we need attacks for the training set.
-	if True:
-		Xt = X
-		Yt = Y
+	#if True:
+	#	Xt = X
+	#	Yt = Y
 
 	#Parameters for the GP
 	params = param_constructor(FLAGS.seed)
@@ -199,7 +192,8 @@ def main(_):
 	#If it already exists, just load it.
 	#We do classification by treating it as a regression problem i.e. the conjugate method
 	#So all we need is the inverse of the training kernel
-	#Kxx = initialize_kernel("Kxx", X, None, False, kern, kernels_dir)
+	if not FLAGS.adv_only:
+		Kxx = initialize_kernel("Kxx", X, None, False, kern, kernels_dir)
 	K_inv = initialize_Kxx_inverse(kernels_dir)
 	#Center labels and make symmetric:
 	#Don't center labels. Use one-hot vectors as probabilities
@@ -236,9 +230,11 @@ def main(_):
 			print('Carlini Wagner attack',FLAGS.max_iterations)
 			Xa = attacks.attack('cw_l2', attack_params, K_inv_Y, kern, X, Xt, Yt,  output_path=adv_data_dir, adv_file_output=adv_data_file)
 		elif FLAGS.attack == 'ead':
-			print('Elastic-Net attack',FLAGS.max_iterations)
-			#Xa = attacks.attack('fgsm', attacks.FGSM_Params(eps=0.5,ord=2), K_inv_Y, kern, X, Xt, Yt,  output_path=adv_data_dir, adv_file_output=adv_data_file)
 			Xa = attacks.attack('ead', attack_params, K_inv_Y, kern, X, Xt, Yt,  output_path=adv_data_dir, adv_file_output=adv_data_file)
+		elif FLAGS.attack == 'spsa':
+			Xa = attacks.attack('spsa',attack_params, K_inv_Y, kern, X, Xt, Yt,  output_path=adv_data_dir, adv_file_output=adv_data_file)
+		elif FLAGS.attack == 'rand':
+			Xa = attacks.rand_attack(attack_params, K_inv_Y, kern, X, Xt, Yt,  output_path=adv_data_dir, adv_file_output=adv_data_file)
 		else:
 			print("***Invalid attack specified***")
 			return
@@ -256,22 +252,22 @@ if __name__ == '__main__':
 	f.DEFINE_integer('seed', 20, 'The seed to use')
 	f.DEFINE_enum('param_constructor', 'EmpiricalPrior', ['EmpiricalPrior', 'SimpleMNISTParams', 'PaperParams'], 'The GP parameter struct to use')
 
-	f.DEFINE_bool('generate_attack', False,
+	f.DEFINE_bool('generate_attack', True,
 					"Whether the attack is generated, or whether an existing attack should be loaded")
 	f.DEFINE_bool('adv_only', True, 
 					"When this flag is true, the test and validation error won't be evaluated. Useful when generating a bunch of different attacks for the same GP")
 					
-	f.DEFINE_string('data_path', '/home/squishymage/cnn_gp/training_data',
+	f.DEFINE_string('data_path', "/scratch/etv21/conv_gp_data/MNIST_data/expA2",
 					"Path to the compressed dataset")
-	f.DEFINE_string('output_dir', '/home/squishymage/cnn_gp/trained_model',
+	f.DEFINE_string('output_dir', '/scratch/etv21/conv_gp_data/expB',
 					"Location where generated files will be placed (graphs, kernels, etc)")
 
 	f.DEFINE_string('adv_attack_name', 'GP_FGSM_eps={}_norm_{}_nll_targeted',
 					"Name of attack. All outputs related to this attack will be put in the adv_output/adv_data directories, within a new subdirectory with this (adv_attack_name) name. Will be inferred if generating attack")
-	f.DEFINE_string('adv_output', '/home/squishymage/cnn_gp/gp_outputs',
+	f.DEFINE_string('adv_output', '/scratch/etv21/conv_gp_data/expB',
 					"Directory where the adv kernels will be put. Usually a subdirectory of the output_dir")
 
-	f.DEFINE_string('adv_data', '/home/squishymage/cnn_gp/gp_attacks',
+	f.DEFINE_string('adv_data', '/scratch/etv21/conv_gp_data/MNIST_data/expB',
 					"Directory where the adv dataset is/will be")
 
 	f.DEFINE_string('adv_data_file', 'two_vs_seven_{}.npy',
@@ -279,12 +275,16 @@ if __name__ == '__main__':
 
 
 	#Attack parameters:
-	f.DEFINE_enum('attack', 'fgsm', ['fgsm_ours', 'fgsm', 'cw_l2', 'ead', 'pgd'], 'The attack strategy to use. Only specify if generating attack.')
+	f.DEFINE_enum('attack', 'rand', ['fgsm_ours', 'fgsm', 'cw_l2', 'ead', 'pgd', 'spsa', 'rand'], 'The attack strategy to use. Only specify if generating attack.')
 	f.DEFINE_float('epsilon', 0.3, 'The FGSM perturbation size')
 	f.DEFINE_float('norm_type', np.Inf, 'The norm to be used by FGSM')
 
 	f.DEFINE_integer('nb_iter', 10, 'Number of iterations for PGD')
 	f.DEFINE_float('eps_iter', 0.05, 'Step perturbation')
+
+	flags.DEFINE_integer('spsa_samples', 24, 'Number of SPSA samples (per iter)')
+	flags.DEFINE_integer('spsa_iters', 1, 'Number of SPSA iterations')
+	flags.DEFINE_float('delta', 0.01, 'SPSA delta (step size for gradient approx)')
 
 	f.DEFINE_float('confidence', 0.0, 'The confidence to be used by CW_l2 and EAD')
 	f.DEFINE_float('learning_rate', 5e-2, 'learning rate for C & W and EAD')
@@ -320,4 +320,18 @@ def RandomSearchParams(seed):
 			padding=("VALID" if np.random.rand() > 0.5 else "SAME"),
 			nlin=("ExReLU" if np.random.rand() > 0.5 else "ExErf"),
 			skip_freq=(int(np.random.rand()*2) + 1 if np.random.rand() > 0.5 else -1), 
+	)
+
+#From Adria's paper
+def SimpleMNISTParams(seed):
+	return dict(
+			seed=seed,
+			var_weight=[0.642928 for k in range (0,3)], #np.random.rand() * 8 + 0.5, #Don't really know what to choose for weights and biases. Same as init for the conv? 0.0004682
+			var_bias=[3.761496 for k in range(0,3)], #np.random.rand() * 8 + 0.2, 0.002308
+			n_layers=2,
+			filter_sizes=5,
+			strides=1,
+			padding="SAME", 
+			nlin="ExReLU",  
+			skip_freq=-1,
 	)
