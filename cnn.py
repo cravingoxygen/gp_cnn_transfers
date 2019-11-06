@@ -35,6 +35,8 @@ import pickle
 import tqdm
 import math
 import time
+import alternative_archs as archs
+import draw_samples as ds
 
 FLAGS = flags.FLAGS
 
@@ -76,7 +78,7 @@ def mnist_sevens_vs_twos(data_path, noisy=True, float_type=FLOAT_TYPE):
 	train_images, train_labels = extract_images_and_labels(2, 7, ds.train.images, ds.train.labels)
 	test_images, test_labels = extract_images_and_labels(2, 7, ds.test.images, ds.test.labels)
 	#validation_images, validation_labels = extract_images_and_labels(2, 7, ds.validation.images, ds.validation.labels)
-
+	#import pdb; pdb.set_trace()
 	if noisy:
 		train_noise = np.random.normal(0, 0.0001, train_images.shape)
 		test_noise = np.random.normal(0, 0.0001, test_images.shape)
@@ -152,6 +154,7 @@ def fc_gaussian_init(fc_layer):
 
 def conv2d_gaussian_init(conv2d_layer):
 	n = conv2d_layer.in_channels
+	import pdb; pdb.set_trace()
 	for k in conv2d_layer.kernel_size:
 		n *= k
 	print('conv layer constant: {}'.format(n))
@@ -190,9 +193,9 @@ def transfer_attack(torch_model, attack_name, adv_images_file, labels_file, batc
 	return
 	
 
-def train_model(data_dir, nb_epochs=NB_EPOCHS, batch_size=BATCH_SIZE, train_end=-1, test_end=-1, learning_rate=LEARNING_RATE):
+def train_model(data_dir, nb_epochs=NB_EPOCHS, batch_size=BATCH_SIZE, train_end=-1, test_end=-1, learning_rate=LEARNING_RATE, model_arch=MNIST_arch_0):
 	# Train a pytorch MNIST model
-	torch_model = MNIST_arch_0()
+	torch_model = model_arch()
 	if torch.cuda.is_available():
 		torch_model = torch_model.cuda()
 
@@ -229,10 +232,16 @@ def train_model(data_dir, nb_epochs=NB_EPOCHS, batch_size=BATCH_SIZE, train_end=
 
 	acc = float(correct) / total
 	print('Clean error: %.2f%%' % ((1 - acc) * 100))
-	
+	'''
+	report_file = os.path.join('/home/squishymage/cnn_gp/archs', FLAGS.report)
+	if report_file is not None:
+		f = open(report_file, "a+")
+		f.write('Clean error: %.2f%%' % ((1 - acc) * 100))
+		f.close()
+	'''
 	return torch_model
 
-def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='', output_samples=True, report_file=None, batch_size=BATCH_SIZE):
+def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='', output_samples=True, report_file=None, batch_size=BATCH_SIZE, attack_arch=None):
 	time_start = time.time()
 	test_dataset = mnist_sevens_vs_twos(data_dir, noisy=True)[1]
 	if attack == 'spsa':
@@ -265,6 +274,9 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 	else:
 		print('ERROR - Unsupported attack specified')
 		return
+		
+	if attack_arch is not None:
+		attack_name = attack_arch +"_" + attack_name
 	
 	attack_dir = os.path.join(output_dir, attack_name)
 	if not os.path.exists(attack_dir):
@@ -291,6 +303,10 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 		print('Images will be saved to: {}'.format(output_image_path))
 		if not os.path.exists(output_image_path):
 			os.makedirs(output_image_path)
+	
+	inf0_2s, inf0_7s = np.zeros((28,28)), np.zeros((28,28))
+	inf1_2s, inf1_7s = np.zeros((28,28)), np.zeros((28,28))
+	num_2s, num_7s = 0.0, 0.0
 	
 	for xs, ys in test_loader:
 		#Target is opposite class
@@ -324,9 +340,9 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 					f.write('LInf norm - ave: {}\t std: {}\t max: {} min: {}\n'.format(inf_dist.mean(), inf_dist.std(), inf_dist.max(), inf_dist.min()))
 					f.close()
 				
-				print("L2 norm - ave: {}\t std: {}\t max: {} min: {}".format(l2_dist.mean(), l2_dist.std(), l2_dist.max(), l2_dist.min()))
-				print('L1 norm - ave: {}\t std: {}\t max: {} min: {}'.format(l1_dist.mean(), l1_dist.std(), l1_dist.max(), l1_dist.min()))
-				print("LInf norm - ave: {}\t std: {}\t max: {} min: {}".format(inf_dist.mean(), inf_dist.std(), inf_dist.max(), inf_dist.min()))
+				#print("L2 norm - ave: {}\t std: {}\t max: {} min: {}".format(l2_dist.mean(), l2_dist.std(), l2_dist.max(), l2_dist.min()))
+				#print('L1 norm - ave: {}\t std: {}\t max: {} min: {}'.format(l1_dist.mean(), l1_dist.std(), l1_dist.max(), l1_dist.min()))
+				#print("LInf norm - ave: {}\t std: {}\t max: {} min: {}".format(inf_dist.mean(), inf_dist.std(), inf_dist.max(), inf_dist.min()))
 			for i in range(xs.shape[0]):
 			#Print the first and 8th batches of images i.e. a batch of 2s and a batch of 7s
 				enc_img = sess.run(encode_op, feed_dict={single_adv_x_op: adv_xs[i]}) #Only one image in a batch
@@ -341,7 +357,6 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 		else:
 			adv_images = np.append(adv_images, adv_xs.reshape(adv_xs.shape[0], 28, 28), 0)
 
-	
 	np.save(os.path.join(output_dir,'adv_predictions_{}'.format(attack_name)), all_adv_preds)
 	acc = float(correct) / total
 	time_required = time.time() - time_start
@@ -355,6 +370,34 @@ def generate_attack(attack, attack_params, torch_model, data_dir, output_dir='',
 		f.close()
 	
 	np.save(output_dir + '/two_vs_seven_adv_{}'.format(attack_name), adv_images, allow_pickle=False)
+
+def all_archs():
+	#
+	arch_list = [MNIST_arch_0, archs.MNIST_arch_1, archs.MNIST_arch_1b, archs.MNIST_arch_2, archs.MNIST_arch_3, archs.MNIST_arch_4, 
+		archs.MNIST_arch_5, archs.MNIST_arch_6, archs.MNIST_arch_7, archs.MNIST_arch_8]
+	for a in range(5, len(arch_list)):
+		torch_model = train_model(data_dir=FLAGS.data_dir, model_arch=arch_list[a])
+		torch.save(torch_model, FLAGS.model.format("arch_{}".format(a)))
+		
+		report_file = os.path.join('/home/squishymage/cnn_gp/archs', FLAGS.report)
+		#import pdb; pdb.set_trace()
+		if FLAGS.attack == 'fgsm':
+			param_set = FGSM_Params(eps=FLAGS.eps,ord=FLAGS.ord)
+		elif FLAGS.attack == 'cw_l2':
+			param_set = CW_L2_Params(confidence=FLAGS.confidence, max_iterations=FLAGS.max_iterations, learning_rate=FLAGS.learning_rate, 
+				binary_search_steps=FLAGS.binary_search_steps, initial_const=FLAGS.initial_const, batch_size=BATCH_SIZE)
+		elif FLAGS.attack == 'ead':
+			param_set = EAD_Params(beta=FLAGS.beta, confidence=FLAGS.confidence, max_iterations=FLAGS.max_iterations, learning_rate=FLAGS.learning_rate, 
+				binary_search_steps=FLAGS.binary_search_steps, initial_const=FLAGS.initial_const, batch_size=BATCH_SIZE)
+		elif FLAGS.attack == 'pgd':
+			param_set = PGD_Params(eps=FLAGS.eps, eps_iter=FLAGS.eps_iter, ord=FLAGS.ord, nb_iter=FLAGS.nb_iter)
+		else:
+			print("ERROR - Param set not implemented")
+			return
+
+
+		generate_attack(FLAGS.attack, param_set, torch_model, FLAGS.data_dir, report_file=report_file, output_dir='/home/squishymage/cnn_gp/archs', attack_arch='arch_{}'.format(a))
+	
 
 def main(_=None):
 	#from cleverhans_tutorials import check_installation
@@ -410,24 +453,27 @@ if __name__ == '__main__':
 	flags.DEFINE_string('attack_name', 'cleverhans_FGSM_eps=0.1_norm_inf', 'Name of attack (eg. CNN_FGSM_eps=0.3_norm=inf). Used to infer location of adv data file.') 
 	#This should be in the data_dir if we're generating an attack.
 	#Otherwise, this should be in the adv_images's parent directory
+
 	flags.DEFINE_string('output_path', '/media/etv21/Elements/CNN_Attacks/attacks', "Directory of report file")
 	#Relative to data directory if generating, relative to the output directory if attacking. We really need to refactor this.
 	flags.DEFINE_string('report', 'cnn_spsa_arch0.txt', "The CNNs accuracy will be appended to this file.")
 	flags.DEFINE_string('model', '/scratch/etv21/conv_gp_data/expA1/cnn_7_vs_2.pt', "The trained CNN")
 
 	flags.DEFINE_string('attack', 'spsa', 'Identifier for the attack to run')
+
+	flags.DEFINE_float('learning_rate', 5e-2, 'learning rate')
 	flags.DEFINE_float('initial_const', 1.0, 'Initial value for the constant that determines the tradeoff b/w distortion and attack success')
 	flags.DEFINE_float('confidence', 0, 'Confidence (Kappa)')
 	flags.DEFINE_float('beta', 1e-2, 'Beta, tradeoff between L1 and L2 (EAD)')
 	flags.DEFINE_integer('max_iterations', 1, 'Max iterations')
 	flags.DEFINE_integer('binary_search_steps', 6, 'Max binary search steps for c')
 
-	flags.DEFINE_float('learning_rate', 0.01, 'learning rate')
 	flags.DEFINE_integer('spsa_iters', 1, 'Number of SPSA iterations')
 	flags.DEFINE_float('delta', 0.01, 'SPSA delta (step size for gradient approx)')
 
 	flags.DEFINE_integer('nb_iter', 10, 'Number of iterations for PGD/optimization iters for spsa')
 	flags.DEFINE_float('eps', 0.3, 'Max perturbation')
+
 	flags.DEFINE_float('eps_iter', 0.05, 'Step perturbation')
 	flags.DEFINE_float('ord', np.Inf, 'Order of norm')
 	
