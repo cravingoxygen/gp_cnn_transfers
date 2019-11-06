@@ -1,3 +1,30 @@
+import tensorflow as tf
+from tensorflow.python.platform import flags
+import torch
+from torch import nn
+import torch.nn.functional as F
+from torch import optim
+from torch.autograd import Variable
+from torchvision import datasets, transforms
+
+
+def fc_gaussian_init(fc_layer):
+	stdev = 1./math.sqrt(fc_layer.weight.size(1))
+	fc_layer.weight.data.normal_(0, stdev)
+	if fc_layer.bias is not None:
+		fc_layer.bias.data.normal_(0, stdev)
+	return fc_layer
+
+def conv2d_gaussian_init(conv2d_layer):
+	n = conv2d_layer.in_channels
+	for k in conv2d_layer.kernel_size:
+		n *= k
+	stdev = 1./math.sqrt(n)
+	conv2d_layer.weight.data.normal_(0, stdev)
+	if conv2d_layer.bias is not None:
+		conv2d_layer.bias.data.normal_(0, stdev)
+	return conv2d_layer
+
 
 class MNIST_arch_2(nn.Module):
   """ Basic MNIST model from github, unmodified
@@ -189,6 +216,28 @@ class MNIST_arch_8(nn.Module):
     x = F.dropout(x, training=self.training)
     x = self.fc2(x)
     return F.log_softmax(x)
+
+class MNIST_arch_1b(nn.Module):
+	""" Basic MNIST model from github
+	Modified to have one fc layer and no pooling
+	https://github.com/rickiepark/pytorch-examples/blob/master/mnist.ipynb
+	"""
+
+	def __init__(self):
+		super(MNIST_arch_1b, self).__init__()
+		# input is 28x28
+		# padding=2 for same padding
+		self.conv1 = (nn.Conv2d(1, 32, 5, padding=2))
+		self.conv2 = (nn.Conv2d(32, 64, 5, padding=2))
+		# No pooling, so feature map same as input size * num filters
+		self.fc1 = (nn.Linear(64 * 28*28, 2))
+
+	def forward(self, x):
+		x = F.relu(self.conv1(x))
+		x = F.relu(self.conv2(x))
+		x = x.view(-1, 64 * 28*28)  # reshape Variable
+		x = self.fc1(x)
+		return F.log_softmax(x, dim=-1)
 
 
 class MNIST_arch_1(nn.Module):
