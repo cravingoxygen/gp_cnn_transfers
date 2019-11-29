@@ -65,24 +65,30 @@ def main(_):
             return Y_pred_n
 
     elif FLAGS.model == 'cnn':
-        model = torch.load(FLAGS.cnn_dir, map_location=torch.device('cuda'))
+        model = torch.load(FLAGS.cnn_dir, map_location=torch.device('cpu'))
         def classify(X_pert, pert, index):
             X_prep = torch.from_numpy(X_pert.astype(np.float32))
             X_prep = X_prep.reshape(-1, 1, 28, 28)
             xs = Variable(X_prep)
-            if torch.cuda.is_available():
-                xs = xs.cuda()
+            #if torch.cuda.is_available():
+            #    xs = xs.cuda()
             preds = model(xs)
             preds_np = preds.data.cpu().numpy()
             return np.argmax(preds_np, axis=1)
     else:
         raise Exception('Model not supported')
 
-    scaling = [0.01, 0.5, 1.0, 5.0, 10.0, 50.0]
+    scaling = [0.01, 0.05, 0.075, 0.1, 0.25, 0.5, 1.0, 5.0, 10.0, 50.0]
     flip_counts = np.zeros(len(scaling)+1)
 
-    indices = np.random.randint(0, Xt.shape[0], FLAGS.num_patterns) #[0,1,2,3,4]; #
-    np.savetxt('{}/gp_indices_{}'.format(FLAGS.output_dir,FLAGS.num_patterns), indices)
+    #indices = np.random.randint(0, Xt.shape[0], FLAGS.num_patterns) #[0,1,2,3,4]; #
+    if FLAGS.indices_file is not None:
+        indices = np.loadtxt(FLAGS.indices_file).astype(int)[0:FLAGS.num_patterns]
+    else:
+        indices = np.arange(0,Xt.shape[0])
+        np.random.shuffle(indices)
+        np.savetxt('{}/indices.txt'.format(FLAGS.output_dir,FLAGS.num_patterns), indices, fmt='%i')
+        indices = indices[0:FLAGS.num_patterns]
 
     #Also visualize a direction for each pattern
     sess = tf.Session()
@@ -130,7 +136,8 @@ def main(_):
 
         flip_counts[len(scaling)] += still_correct_count
 
-    flip_counts = flip_counts / float(FLAGS.num_patterns * num_dirs*2)
+    import pdb; pdb.set_trace()
+    flip_counts = flip_counts / float(len(indices) * num_dirs*2)
     #Do something with this information.
 
     plt.bar(np.arange(0, len(scaling)+1), flip_counts)
@@ -141,7 +148,6 @@ def main(_):
     plt.xticks(np.arange(0, len(scaling)+1), labels=labels)
     plt.savefig("{}/{}_flip_dists_norm_({}).png".format(FLAGS.output_dir, FLAGS.model, FLAGS.num_patterns), format='png')
     plt.close()
-    import pdb; pdb.set_trace()
 
 
 
@@ -154,9 +160,10 @@ if __name__ == '__main__':
 
     flags.DEFINE_string('cnn_dir', '/scratch/etv21/conv_gp_data/MNIST_data/expA2/cnn_7_vs_2.pt', "Directory where the cnn's .pt file is")
     flags.DEFINE_string('gp_dir', '/scratch/etv21/conv_gp_data/expA1/kernels', "Directory of the GP's kernels")
-    flags.DEFINE_enum('model', 'gp', ['gp', 'cnn'], 'The attack strategy to use. Only specify if generating attack.')
+    flags.DEFINE_enum('model', 'cnn', ['gp', 'cnn'], 'The attack strategy to use. Only specify if generating attack.')
 
 
+    flags.DEFINE_string('indices_file', '/scratch/etv21/conv_gp_data/expA1/shuffled_indices.txt', "Directory of shuffled test set indices. The first num_patterns many of these will be used.")
     flags.DEFINE_integer('num_patterns', 200, 'How many patterns to look at')
 
     flags.DEFINE_integer('num_directions', 28*28, 'Number of directions to explore')
